@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vessel File Updater</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.1/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --border: #e2e8f0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 800px;
+      width: 100%;
+      background: var(--card-bg);
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+      border: 1px solid var(--border);
+    }
+    h1 { margin-top: 0; font-size: 1.75rem; color: #1e293b; }
+    p.desc { color: #64748b; font-size: 0.95rem; line-height: 1.5; }
+      /* When ship-photo.jpg is present, use it as full-page background */
+      body.has-hero { background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }
+      /* subtle overlay for contrast */
+      body.has-hero::before { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.20); pointer-events: none; z-index: 0; }
+      /* keep container readable on top of background */
+      .container { background: #ffffff; box-shadow: 0 14px 40px rgba(2,6,23,0.14); border: 1px solid rgba(226,232,240,0.95); position: relative; z-index: 10; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+    .dropzone {
+      border: 1px solid rgba(226,232,240,0.95);
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+      background: #ffffff;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+    }
+    .dropzone:hover { border-color: var(--primary); background: #eff6ff; }
+    .dropzone input { display: none; }
+    .dropzone label { cursor: pointer; font-weight: 600; display: block; margin-bottom: 0.5rem; color: #0f172a; }
+    .file-name { font-size: 0.85rem; color: #065f46; word-break: break-all; margin-top: 0.5rem; }
+    button {
+      width: 100%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.85rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    .stats-card {
+      margin-top: 1.5rem;
+      background: #ffffff;
+      border: 1px solid rgba(226,232,240,0.9);
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+    }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .stat-item { background: white; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border); text-align: center; }
+    .stat-value { font-size: 1.25rem; font-weight: 700; color: var(--primary); }
+    .stat-label { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
+    .btn-download { background: #059669; margin-top: 1rem; }
+    .btn-download:hover { background: #047857; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="top-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <h1 style="margin:0;">🚢 Vessel File Updater</h1>
+    </div>
+    <div style="font-weight:600;color:#475569;">Welcome, Xu Zhi Jun</div>
+  </div>
+  <p class="desc">Update WiDE dashboard easily by uploading your Excel and database files.</p>
+
+  <div class="grid">
+    <div class="dropzone" onclick="document.getElementById('excelFile').click()">
+      <label>1. Target Excel File (.xlsx)</label>
+      <span style="font-size: 0.8rem; color: #64748b;">Click or drop file to update</span>
+      <input type="file" id="excelFile" accept=".xlsx" onchange="handleFileSelect(this, 'excelName')">
+      <div id="excelName" class="file-name"></div>
+    </div>
+
+    <div class="dropzone" onclick="document.getElementById('dbFile').click()">
+      <label>2. Database File (.csv, .xlsx)</label>
+      <span style="font-size: 0.8rem; color: #64748b;">Click or drop latest DB</span>
+      <input type="file" id="dbFile" accept=".csv, .xlsx, .xls" onchange="handleFileSelect(this, 'dbName')">
+      <div id="dbName" class="file-name"></div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:0.5rem;">
+    <button id="processBtn" onclick="processFiles()">Process Files</button>
+  </div>
+  
+  <div id="results" style="display: none;">
+    <div class="stats-card">
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;">Processing Summary</h3>
+      <div class="stats-grid">
+        <div class="stat-item"><div class="stat-value" id="st-total">0</div><div class="stat-label">Total Rows</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-matched">0</div><div class="stat-label">Matched Rows</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-unmatched">0</div><div class="stat-label">Unmatched Rows</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-vessel">0</div><div class="stat-label">Vessels Updated</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-imo">0</div><div class="stat-label">IMOs Updated</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-handover">0</div><div class="stat-label">Handovers Updated</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-shop">0</div><div class="stat-label">Shop Tests Updated</div></div>
+        <div class="stat-item"><div class="stat-value" id="st-skipped" style="color: #d97706;">0</div><div class="stat-label">Skipped (Shoptested)</div></div>
+      </div>
+    </div>
+    <button id="downloadBtn" class="btn-download" onclick="downloadFile()">⬇️ Download Updated File</button>
+  </div>
+</div>
+
+<script>
+  let processedBuffer = null;
+
+  function handleFileSelect(input, labelId) {
+    if (input.files.length > 0) {
+      document.getElementById(labelId).innerText = "Selected: " + input.files[0].name;
+    }
+  }
+
+  function cleanStr(val) {
+    if (val === null || val === undefined) return "";
+    let s = String(val).trim();
+    if (s.endsWith('.0')) s = s.slice(0, -2);
+    return s;
+  }
+
+  function formatDate(val) {
+    if (!val) return null;
+    let d = new Date(val);
+    if (isNaN(d.getTime())) {
+      // Try string parsing YYYY-MM-DD or DD/MM/YYYY
+      const match = String(val).match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+      if (match) {
+        d = new Date(match[1], match[2] - 1, match[3]);
+      } else {
+        return null;
+      }
+    }
+    if (isNaN(d.getTime())) return null;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return { formatted: `${day}/${month}/${year}`, dateObj: d };
+  }
+
+  // Convert various buffer types to ArrayBuffer for XLSX.write consumption
+  function toArrayBuffer(buf) {
+    if (buf instanceof ArrayBuffer) return buf;
+    if (ArrayBuffer.isView(buf)) {
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    }
+    return buf;
+  }
+
+  // Set a cell value in a SheetJS sheet (zero-based row/col)
+  function setCellValue(sheet, rowIndex, colIndex, value) {
+    const cellRef = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex });
+    sheet[cellRef] = { t: typeof value === 'number' ? 'n' : 's', v: value };
+
+    if (!sheet['!ref']) {
+      sheet['!ref'] = cellRef;
+      return;
+    }
+
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+    if (rowIndex < range.s.r) range.s.r = rowIndex;
+    if (rowIndex > range.e.r) range.e.r = rowIndex;
+    if (colIndex < range.s.c) range.s.c = colIndex;
+    if (colIndex > range.e.c) range.e.c = colIndex;
+    sheet['!ref'] = XLSX.utils.encode_range(range);
+  }
+
+  async function parseDatabase(file) {
+    const primaryDbMap = new Map();
+    const secondaryDbMap = new Map();
+
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      return new Promise((resolve, reject) => {
+        Papa.parse(file, {
+          skipEmptyLines: true,
+          complete: (results) => {
+            const rows = results.data.slice(1);
+            rows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap));
+            resolve({ primaryDbMap, secondaryDbMap });
+          },
+          error: reject
+        });
+      });
+    }
+
+    // For XLSX files, sanitize first to remove problematic <autoFilter>/<filters> nodes
+    let ab;
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.xlsx')) {
+      try {
+        ab = await sanitizeXlsx(file);
+      } catch (e) {
+        // Fallback: try reading original buffer if sanitization fails
+        console.warn('sanitizeXlsx failed, falling back to raw buffer:', e);
+        ab = await file.arrayBuffer();
+      }
+    } else {
+      ab = await file.arrayBuffer();
+    }
+
+    const workbook = XLSX.read(ab, { type: 'array', cellStyles: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+
+    rows.slice(1).forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap));
+    return { primaryDbMap, secondaryDbMap };
+  }
+
+  // Sanitize an XLSX file by removing <autoFilter> and <filters> XML nodes from worksheet/table XML parts
+  
+  async function sanitizeXlsx(file) {
+    try {
+      const ab = await file.arrayBuffer();
+      const zip = await JSZip.loadAsync(ab);
+      const files = Object.keys(zip.files);
+      const xmlPaths = files.filter(p => /(^|\/)xl\/(worksheets|tables)\/.+\.xml$/i.test(p));
+      for (const path of xmlPaths) {
+        try {
+          const text = await zip.file(path).async('text');
+          let updated = text;
+          // replace autoFilter blocks with a self-closing tag preserving attributes to avoid corrupting structure
+          updated = updated.replace(/<autoFilter([^>]*)>[\s\S]*?<\/autoFilter>/gi, '<autoFilter$1/>');
+          // replace filters blocks with self-closing tag
+          updated = updated.replace(/<filters([^>]*)>[\s\S]*?<\/filters>/gi, '<filters$1/>');
+          // replace filterColumn elements with self-closing tag (preserve attributes)
+          updated = updated.replace(/<filterColumn([^>]*)>[\s\S]*?<\/filterColumn>/gi, '<filterColumn$1/>');
+          if (updated !== text) {
+            zip.file(path, updated);
+          }
+        } catch (e) {
+          // ignore read/parse errors for individual files
+        }
+      }
+      const out = await zip.generateAsync({ type: 'uint8array' });
+      return out.buffer ? out.buffer : out;
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  function extractDbRow(r, priMap, secMap) {
+    const priDb = cleanStr(r[5]);
+    const secDb = cleanStr(r[6]);
+    const priShopRaw = cleanStr(r[7]);
+    const secShopRaw = cleanStr(r[8]);
+    const record = {
+      vesselName: cleanStr(r[0]),
+      imo: cleanStr(r[2]),
+      handoverDate: formatDate(r[4]),
+      priShopDate: formatDate(r[7]),
+      secShopDate: formatDate(r[8]),
+      priShopRaw: priShopRaw,
+      secShopRaw: secShopRaw
+    };
+    if (priDb) priMap.set(priDb, record);
+    if (secDb) secMap.set(secDb, record);
+  }
+
+  async function processFiles() {
+    const targetEl = document.getElementById('excelFile');
+    const dbEl = document.getElementById('dbFile');
+
+    if (!targetEl.files.length || !dbEl.files.length) {
+      alert("Please select both files before processing.");
+      return;
+    }
+
+    const btn = document.getElementById('processBtn');
+    btn.disabled = true;
+    btn.innerText = "Processing...";
+
+    try {
+      const { primaryDbMap, secondaryDbMap } = await parseDatabase(dbEl.files[0]);
+
+      // Processing stats and cutoff date
+      let stats = {
+        total: 0, matched: 0, unmatched: 0,
+        vessel: 0, imo: 0, handover: 0, shop: 0, skipped: 0
+      };
+      const cutoffDate = new Date(2025, 0, 1);
+
+      // Use SheetJS (XLSX) to read and update the target workbook to avoid ExcelJS XML parser crashes
+      // Sanitize target XLSX to remove problematic filter nodes, then read
+      let targetBuffer;
+      if (targetEl.files[0].name.toLowerCase().endsWith('.xlsx')) {
+        try {
+          targetBuffer = await sanitizeXlsx(targetEl.files[0]);
+        } catch (e) {
+          console.warn('sanitizeXlsx failed for target, using raw buffer', e);
+          targetBuffer = await targetEl.files[0].arrayBuffer();
+        }
+      } else {
+        targetBuffer = await targetEl.files[0].arrayBuffer();
+      }
+      const targetWorkbook = XLSX.read(targetBuffer, { type: 'array', cellStyles: true });
+      const sheetName = targetWorkbook.SheetNames[0];
+      const sheet = targetWorkbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+
+      // stats and cutoffDate are declared above; just use them here (they already exist in outer scope)
+
+      rows.slice(1).forEach((row, index) => {
+        const sheetRowIndex = index + 1; // zero-based for SheetJS encode_cell
+        stats.total++;
+
+        const priDbVal = cleanStr(row[5]);
+        const secDbVal = cleanStr(row[6]);
+
+        let match = null;
+        if (priDbVal && primaryDbMap.has(priDbVal)) {
+          match = primaryDbMap.get(priDbVal);
+        } else if (secDbVal && secondaryDbMap.has(secDbVal)) {
+          match = secondaryDbMap.get(secDbVal);
+        }
+
+        if (!match) {
+          stats.unmatched++;
+          return;
+        }
+
+        stats.matched++;
+
+        if (match.vesselName && cleanStr(row[0]) !== match.vesselName) {
+          setCellValue(sheet, sheetRowIndex, 0, match.vesselName);
+          stats.vessel++;
+        }
+
+        if (match.imo && cleanStr(row[2]) !== match.imo) {
+          setCellValue(sheet, sheetRowIndex, 2, match.imo);
+          stats.imo++;
+        }
+
+        if (match.handoverDate && match.handoverDate.dateObj >= cutoffDate) {
+          if (cleanStr(row[4]) !== match.handoverDate.formatted) {
+            setCellValue(sheet, sheetRowIndex, 4, match.handoverDate.formatted);
+            stats.handover++;
+          }
+        }
+
+        const currentShopRaw = cleanStr(row[7]);
+        const currentShopValLower = currentShopRaw.toLowerCase();
+        const targetShopObj = match.priShopDate || match.secShopDate;
+        let targetShopStr = targetShopObj ? targetShopObj.formatted : null;
+        // Preserve '(shoptested)' or similar suffix from the DB raw value when present
+        const dbPriRaw = match.priShopRaw || '';
+        const dbSecRaw = match.secShopRaw || '';
+        const dbShopRaw = dbPriRaw || dbSecRaw || '';
+        if (targetShopStr && dbShopRaw) {
+          const parenIdx = dbShopRaw.indexOf('(');
+          let suffix = '';
+          if (parenIdx !== -1) {
+            suffix = ' ' + dbShopRaw.substring(parenIdx).trim();
+          } else if (/shoptested/i.test(dbShopRaw)) {
+            suffix = ' (shoptested)';
+          }
+          targetShopStr = targetShopStr + suffix;
+        }
+
+        // If the existing cell already contains 'shoptested', leave it as-is (user requested)
+        if (currentShopValLower.includes('shoptested')) {
+          stats.skipped++;
+        } else {
+          if (targetShopStr && currentShopRaw !== targetShopStr) {
+            setCellValue(sheet, sheetRowIndex, 7, targetShopStr);
+            stats.shop++;
+          }
+        }
+      });
+
+      // Write workbook back to an ArrayBuffer (SheetJS)
+      processedBuffer = toArrayBuffer(XLSX.write(targetWorkbook, {
+        bookType: 'xlsx',
+        type: 'array',
+        cellStyles: true
+      }));
+
+      // Display Stats
+      document.getElementById('st-total').innerText = stats.total;
+      document.getElementById('st-matched').innerText = stats.matched;
+      document.getElementById('st-unmatched').innerText = stats.unmatched;
+      document.getElementById('st-vessel').innerText = stats.vessel;
+      document.getElementById('st-imo').innerText = stats.imo;
+      document.getElementById('st-handover').innerText = stats.handover;
+      document.getElementById('st-shop').innerText = stats.shop;
+      document.getElementById('st-skipped').innerText = stats.skipped;
+
+      document.getElementById('results').style.display = 'block';
+
+    } catch (err) {
+      alert("An error occurred during processing: " + err.message);
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Process Files";
+    }
+  }
+
+  function downloadFile() {
+    if (!processedBuffer) return;
+    const blob = new Blob([processedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "updated_vessel_sheet.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  
+  // Auto-detect local ship photo (place ship-photo.jpg next to index.html)
+  (async function(){
+    const topBar = document.querySelector('.top-bar');
+    if (!topBar) return;
+    function exists(src){
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = src;
+      });
+    }
+    try {
+      const hasPhoto = await exists('ship-photo.jpg');
+      if (hasPhoto) {
+        document.body.classList.add('has-hero');
+        document.body.style.backgroundImage = "url('ship-photo.jpg')";
+      }
+    } catch (e) {
+      // silent fail
+    }
+  })();
+
+</script>
+
+</body>
+</html>
