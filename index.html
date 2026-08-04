@@ -411,12 +411,14 @@
     const secDb = cleanStr(getRowValue(r, columnMap, 'secondaryDb', 6));
     const priShopRaw = getRawTextValue(getRowValue(r, columnMap, 'priShopDate', 7));
     const secShopRaw = getRawTextValue(getRowValue(r, columnMap, 'secShopDate', 8));
+    const values = Array.from({ length: 8 }, (_, index) => getRawTextValue(getRowValue(r, columnMap, `col${index}`, index)));
     const record = {
-      vesselName: getRawTextValue(getRowValue(r, columnMap, 'vesselName', 0)),
-      imo: getRawTextValue(getRowValue(r, columnMap, 'imo', 2)),
-      handoverDate: getRawTextValue(getRowValue(r, columnMap, 'handoverDate', 4)),
-      priShopRaw: priShopRaw,
-      secShopRaw: secShopRaw
+      values,
+      vesselName: values[0] || '',
+      imo: values[2] || '',
+      handoverDate: values[4] || '',
+      priShopRaw: priShopRaw || secShopRaw || '',
+      secShopRaw: secShopRaw || priShopRaw || ''
     };
     if (priDb) priMap.set(priDb, record);
     if (secDb) secMap.set(secDb, record);
@@ -485,18 +487,7 @@
 
         stats.matched++;
 
-        const dbRowValues = [
-          match.vesselName || '',
-          '',
-          match.imo || '',
-          '',
-          match.handoverDate || '',
-          priDbVal || '',
-          secDbVal || '',
-          match.priShopRaw || match.secShopRaw || ''
-        ];
-
-        dbRowValues.forEach((value, colIndex) => {
+        (match.values || []).forEach((value, colIndex) => {
           setCellValue(sheet, sheetRowIndex, colIndex, value);
         });
 
