@@ -485,17 +485,25 @@
 
         stats.matched++;
 
-        const targetHandoverValue = match.handoverDate || '';
-        if (targetHandoverValue) {
-          setCellValue(sheet, sheetRowIndex, 4, targetHandoverValue);
-          stats.handover++;
-        }
+        const dbRowValues = [
+          match.vesselName || '',
+          '',
+          match.imo || '',
+          '',
+          match.handoverDate || '',
+          priDbVal || '',
+          secDbVal || '',
+          match.priShopRaw || match.secShopRaw || ''
+        ];
 
-        const targetShopValue = match.priShopRaw || match.secShopRaw || '';
-        if (targetShopValue) {
-          setCellValue(sheet, sheetRowIndex, 7, targetShopValue);
-          stats.shop++;
-        }
+        dbRowValues.forEach((value, colIndex) => {
+          setCellValue(sheet, sheetRowIndex, colIndex, value);
+        });
+
+        stats.vessel++;
+        stats.imo++;
+        stats.handover++;
+        stats.shop++;
       });
 
       // Write workbook back to an ArrayBuffer (SheetJS)
