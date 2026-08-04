@@ -462,15 +462,14 @@
       const sheet = targetWorkbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '', raw: false });
       const hasHeaders = rows.length > 0 && rows[0].some(v => cleanStr(v) !== '');
-      const targetColumnMap = hasHeaders ? buildColumnMap(rows[0]) : {};
       const dataRows = hasHeaders ? rows.slice(1) : rows;
 
       dataRows.forEach((row, index) => {
         const sheetRowIndex = index + (hasHeaders ? 1 : 0); // zero-based for SheetJS encode_cell
         stats.total++;
 
-        const priDbVal = cleanStr(getRowValue(row, targetColumnMap, 'primaryDb', 5));
-        const secDbVal = cleanStr(getRowValue(row, targetColumnMap, 'secondaryDb', 6));
+        const priDbVal = cleanStr(row[5] || '');
+        const secDbVal = cleanStr(row[6] || '');
 
         let match = null;
         if (priDbVal && primaryDbMap.has(priDbVal)) {
@@ -486,31 +485,15 @@
 
         stats.matched++;
 
-        const vesselCol = getRowValue(row, targetColumnMap, 'vesselName', 0);
-        const imoCol = getRowValue(row, targetColumnMap, 'imo', 2);
-        const handoverCol = getRowValue(row, targetColumnMap, 'handoverDate', 4);
-        const shopCol = getRowValue(row, targetColumnMap, 'priShopDate', 7);
-
-        if (match.vesselName && cleanStr(vesselCol) !== match.vesselName) {
-          setCellValue(sheet, sheetRowIndex, targetColumnMap.vesselName !== undefined ? targetColumnMap.vesselName : 0, match.vesselName);
-          stats.vessel++;
-        }
-
-        if (match.imo && cleanStr(imoCol) !== match.imo) {
-          setCellValue(sheet, sheetRowIndex, targetColumnMap.imo !== undefined ? targetColumnMap.imo : 2, match.imo);
-          stats.imo++;
-        }
-
         const targetHandoverValue = match.handoverDate || '';
-        if (targetHandoverValue && getRawTextValue(handoverCol) !== targetHandoverValue) {
-          setCellValue(sheet, sheetRowIndex, targetColumnMap.handoverDate !== undefined ? targetColumnMap.handoverDate : 4, targetHandoverValue);
+        if (targetHandoverValue) {
+          setCellValue(sheet, sheetRowIndex, 4, targetHandoverValue);
           stats.handover++;
         }
 
-        const currentShopRaw = getRawTextValue(shopCol);
         const targetShopValue = match.priShopRaw || match.secShopRaw || '';
-        if (targetShopValue && currentShopRaw !== targetShopValue) {
-          setCellValue(sheet, sheetRowIndex, targetColumnMap.priShopDate !== undefined ? targetColumnMap.priShopDate : 7, targetShopValue);
+        if (targetShopValue) {
+          setCellValue(sheet, sheetRowIndex, 7, targetShopValue);
           stats.shop++;
         }
       });
