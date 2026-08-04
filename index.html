@@ -1,567 +1,1182 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vessel File Updater</title>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.1/dist/xlsx.full.min.js"></script>
-  <style>
-    :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --text: #0f172a;
-      --border: #e2e8f0;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vessel File Updater</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --navy-950:#0A1B2E;
+    --navy-900:#0F2942;
+    --navy-800:#163A5C;
+    --blue-600:#1F6FA8;
+    --blue-500:#2C86C4;
+    --blue-100:#E4F0F9;
+    --ink:#122436;
+    --ink-soft:#4C6070;
+    --line:#DCE4EC;
+    --bg:#F4F7FA;
+    --card:#FFFFFF;
+    --good:#1C7A52;
+    --good-bg:#E7F5EE;
+    --bad:#B23A2E;
+    --bad-bg:#FBEAE8;
+    --warn:#9A6B10;
+    --warn-bg:#FBF2DF;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(15,41,66,0.06), 0 4px 16px rgba(15,41,66,0.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    background:linear-gradient(135deg, rgba(10,27,46,0.74), rgba(15,41,66,0.58)), url('ship-photo.jpg') center/cover no-repeat fixed;
+    color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px 64px;}
+
+/* ---------- Header ---------- */
+
+header.app-header{
+    background:transparent;
+    color:#fff;
+    padding:42px 0 52px;
+    margin-bottom:-18px;
+}
+
+header.app-header .wrap{
+    display:flex;
+    justify-content:center;
+}
+
+.header-brand{
+    display:flex;
+    align-items:flex-start;
+    gap:22px;
+    width:100%;
+    max-width:900px;
+}
+
+.brand-mark{
+    flex-shrink:0;
+    width:56px;
+    height:56px;
+    border-radius:16px;
+    background:rgba(255,255,255,0.16);
+    border:1px solid rgba(255,255,255,0.22);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.brand-mark svg{
+    width:30px;
+    height:30px;
+}
+
+.header-copy{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+}
+
+.header-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:20px;
+}
+
+.title-group{
+    display:flex;
+    align-items:center;
+}
+
+.title-group h1{
+    margin:0;
+    font-size:40px;
+    font-weight:800;
+    letter-spacing:-0.03em;
+    line-height:1.05;
+    font-family:'Segoe UI Variable','Segoe UI','Inter',system-ui,sans-serif;
+}
+
+.welcome-badge{
+    display:inline-flex;
+    align-items:center;
+    padding:8px 16px;
+    border-radius:999px;
+    background:rgba(255,255,255,0.14);
+    border:1px solid rgba(255,255,255,0.18);
+    backdrop-filter:blur(8px);
+    color:rgba(255,255,255,0.9);
+    font-size:14px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    white-space:nowrap;
+}
+
+header.app-header p{
+    margin:0;
+    color:rgba(255,255,255,0.82);
+    font-size:16px;
+    line-height:1.6;
+    max-width:680px;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width:720px){
+
+    .header-brand{
+        flex-direction:column;
+        align-items:center;
+        text-align:center;
     }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 2rem;
-      display: flex;
-      justify-content: center;
+
+    .header-copy{
+        align-items:center;
     }
-    .container {
-      max-width: 800px;
-      width: 100%;
-      background: var(--card-bg);
-      padding: 2rem;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
-      border: 1px solid var(--border);
+
+    .header-top{
+        flex-direction:column;
+        gap:12px;
     }
-    h1 { margin-top: 0; font-size: 1.75rem; color: #1e293b; }
-    p.desc { color: #64748b; font-size: 0.95rem; line-height: 1.5; }
-      /* When ship-photo.jpg is present, use it as full-page background */
-      body.has-hero { background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; }
-      /* subtle overlay for contrast */
-      body.has-hero::before { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.20); pointer-events: none; z-index: 0; }
-      /* keep container readable on top of background */
-      .container { background: #ffffff; box-shadow: 0 14px 40px rgba(2,6,23,0.14); border: 1px solid rgba(226,232,240,0.95); position: relative; z-index: 10; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
-    .dropzone {
-      border: 1px solid rgba(226,232,240,0.95);
-      border-radius: 8px;
-      padding: 1.5rem;
-      text-align: center;
-      background: #ffffff;
-      cursor: pointer;
-      transition: all 0.12s ease;
-      box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+
+    .title-group h1{
+        font-size:34px;
     }
-    .dropzone:hover { border-color: var(--primary); background: #eff6ff; }
-    .dropzone input { display: none; }
-    .dropzone label { cursor: pointer; font-weight: 600; display: block; margin-bottom: 0.5rem; color: #0f172a; }
-    .file-name { font-size: 0.85rem; color: #065f46; word-break: break-all; margin-top: 0.5rem; }
-    button {
-      width: 100%;
-      background: var(--primary);
-      color: white;
-      border: none;
-      padding: 0.85rem;
-      font-size: 1rem;
-      font-weight: 600;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.2s;
+
+    .welcome-badge{
+        white-space:normal;
     }
-    button:hover { background: var(--primary-hover); }
-    button:disabled { background: #94a3b8; cursor: not-allowed; }
-    .stats-card {
-      margin-top: 1.5rem;
-      background: #ffffff;
-      border: 1px solid rgba(226,232,240,0.9);
-      border-radius: 8px;
-      padding: 1rem 1.5rem;
-    }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .stat-item { background: white; padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border); text-align: center; }
-    .stat-value { font-size: 1.25rem; font-weight: 700; color: var(--primary); }
-    .stat-label { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
-    .btn-download { background: #059669; margin-top: 1rem; }
-    .btn-download:hover { background: #047857; }
-  </style>
+}
+
+  /* ---------- Route / step indicator ---------- */
+  .route{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:18px 24px;
+    display:flex;
+    align-items:center;
+    gap:0;
+    margin-bottom:24px;
+    position:relative;
+    z-index:1;
+  }
+  .route-step{display:flex;align-items:center;gap:10px;flex:none;}
+  .route-dot{
+    width:26px;height:26px;border-radius:50%;
+    background:#EEF2F6;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:var(--ink-soft);
+    transition:all .25s ease;flex:none;
+  }
+  .route-step.active .route-dot{background:var(--blue-600);border-color:var(--blue-600);color:#fff;}
+  .route-step.done .route-dot{background:var(--good);border-color:var(--good);color:#fff;}
+  .route-label{font-size:13px;font-weight:600;color:var(--ink-soft);white-space:nowrap;}
+  .route-step.active .route-label{color:var(--ink);}
+  .route-step.done .route-label{color:var(--ink);}
+  .route-line{
+    flex:1 1 auto;height:0;border-top:1.5px dashed var(--line);margin:0 12px;
+    position:relative;top:-1px;
+  }
+  .route-line.done{border-top-color:var(--good);opacity:.55;}
+
+  /* ---------- Cards / sections ---------- */
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:26px;
+    margin-bottom:24px;
+  }
+  .card h2{font-size:15px;margin:0 0 4px;font-weight:650;}
+  .card .card-sub{font-size:13px;color:var(--ink-soft);margin:0 0 20px;}
+
+  .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  @media (max-width:720px){.upload-grid{grid-template-columns:1fr;}}
+
+  .dropzone{
+    border:1.5px dashed var(--line);
+    border-radius:var(--radius);
+    padding:22px 18px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+    background:#FBFCFD;
+    outline:none;
+  }
+  .dropzone:hover, .dropzone:focus-visible{border-color:var(--blue-500);background:var(--blue-100);}
+  .dropzone.drag{border-color:var(--blue-600);background:var(--blue-100);}
+  .dropzone.filled{border-style:solid;background:#fff;text-align:left;cursor:default;}
+  .dropzone .dz-icon{width:30px;height:30px;color:var(--blue-600);margin:0 auto 10px;}
+  .dropzone.filled .dz-icon{display:none;}
+  .dropzone .dz-title{font-size:13.5px;font-weight:600;margin:0 0 3px;}
+  .dropzone .dz-hint{font-size:12px;color:var(--ink-soft);margin:0;}
+  .dz-label{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 10px;}
+
+  .file-row{display:flex;align-items:flex-start;gap:12px;}
+  .file-row .file-icon{flex:none;width:34px;height:34px;border-radius:8px;background:var(--blue-100);color:var(--blue-600);display:flex;align-items:center;justify-content:center;}
+  .file-row .file-icon svg{width:18px;height:18px;}
+  .file-meta{flex:1;min-width:0;}
+  .file-name{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .file-size{font-size:12px;color:var(--ink-soft);margin-top:1px;}
+  .file-remove{
+    flex:none;border:none;background:none;color:var(--ink-soft);cursor:pointer;
+    width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  }
+  .file-remove:hover{background:var(--bad-bg);color:var(--bad);}
+  .file-remove svg{width:15px;height:15px;}
+
+  .sheet-picker{margin-top:12px;}
+  .sheet-picker label{font-size:11.5px;color:var(--ink-soft);display:block;margin-bottom:4px;font-weight:600;}
+  .sheet-picker select{
+    width:100%;font-size:13px;padding:7px 8px;border-radius:7px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);font-family:inherit;
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    font-family:inherit;font-size:14px;font-weight:600;
+    border-radius:8px;border:none;cursor:pointer;
+    padding:11px 20px;transition:background .15s ease, opacity .15s ease, transform .1s ease;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--blue-600);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#195b8a;}
+  .btn-primary:disabled{background:#B9C6D2;cursor:not-allowed;}
+  .btn-ghost{background:none;color:var(--ink-soft);border:1px solid var(--line);}
+  .btn-ghost:hover{background:#F0F3F6;color:var(--ink);}
+  .btn-download{background:var(--good);color:#fff;}
+  .btn-download:hover{background:#155f40;}
+  .btn svg{width:16px;height:16px;flex:none;}
+
+  .actions-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;}
+  .rules-toggle{font-size:12.5px;color:var(--blue-600);background:none;border:none;cursor:pointer;font-weight:600;padding:0;font-family:inherit;}
+  .rules-toggle:hover{text-decoration:underline;}
+
+  .rules-panel{
+    margin-top:16px;border-top:1px solid var(--line);padding-top:16px;
+    font-size:13px;color:var(--ink-soft);display:none;
+  }
+  .rules-panel.open{display:block;}
+  .rules-panel ul{margin:8px 0 0;padding-left:18px;}
+  .rules-panel li{margin-bottom:5px;}
+  .rules-panel strong{color:var(--ink);}
+
+  /* ---------- Progress ---------- */
+  .progress-wrap{display:none;}
+  .progress-wrap.active{display:block;}
+  .progress-stage{font-size:13.5px;font-weight:600;margin-bottom:10px;color:var(--ink);}
+  .progress-track{width:100%;height:8px;background:#E9EEF2;border-radius:99px;overflow:hidden;}
+  .progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--blue-600),var(--blue-500));border-radius:99px;transition:width .25s ease;}
+  .progress-pct{font-size:12px;color:var(--ink-soft);margin-top:8px;text-align:right;}
+
+  /* ---------- Results ---------- */
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px;}
+  @media (max-width:720px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
+  .stat{
+    border:1px solid var(--line);border-radius:9px;padding:14px 14px 12px;background:#FBFCFD;
+  }
+  .stat .stat-num{font-size:23px;font-weight:700;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;}
+  .stat .stat-label{font-size:11.5px;color:var(--ink-soft);margin-top:2px;font-weight:600;}
+  .stat.good .stat-num{color:var(--good);}
+  .stat.bad .stat-num{color:var(--bad);}
+  .stat.neutral .stat-num{color:var(--navy-900);}
+
+  .subgrid-title{font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:22px 0 10px;}
+  .notes-list{font-size:13px;color:var(--ink-soft);margin:14px 0 0;padding-left:18px;}
+  .notes-list li{margin-bottom:4px;}
+
+  .results-actions{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;}
+
+  .privacy-note{
+    display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);
+    justify-content:center;margin-top:6px;
+  }
+  .privacy-note svg{width:14px;height:14px;flex:none;}
+
+  footer{text-align:center;font-size:12px;color:#98A6B2;margin-top:8px;}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+
+  input[type=file]{display:none;}
+</style>
 </head>
 <body>
 
-<div class="container">
-  <div class="top-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-    <div style="display:flex;align-items:center;gap:0.75rem;">
-      <h1 style="margin:0;">🚢 Vessel File Updater</h1>
-    </div>
-    <div style="font-weight:600;color:#475569;">Welcome, Xu Zhi Jun</div>
-  </div>
-  <p class="desc">Update WiDE dashboard easily by uploading your Excel and database files.</p>
-
-  <div class="grid">
-    <div class="dropzone" onclick="document.getElementById('excelFile').click()">
-      <label>1. Target Excel File (.xlsx)</label>
-      <span style="font-size: 0.8rem; color: #64748b;">Click or drop file to update</span>
-      <input type="file" id="excelFile" accept=".xlsx" onchange="handleFileSelect(this, 'excelName')">
-      <div id="excelName" class="file-name"></div>
-    </div>
-
-    <div class="dropzone" onclick="document.getElementById('dbFile').click()">
-      <label>2. Database File (.csv, .xlsx)</label>
-      <span style="font-size: 0.8rem; color: #64748b;">Click or drop latest DB</span>
-      <input type="file" id="dbFile" accept=".csv, .xlsx, .xls" onchange="handleFileSelect(this, 'dbName')">
-      <div id="dbName" class="file-name"></div>
-    </div>
-  </div>
-
-  <div style="display:flex; gap:0.5rem;">
-    <button id="processBtn" onclick="processFiles()">Process Files</button>
-  </div>
-  
-  <div id="results" style="display: none;">
-    <div class="stats-card">
-      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;">Processing Summary</h3>
-      <div class="stats-grid">
-        <div class="stat-item"><div class="stat-value" id="st-total">0</div><div class="stat-label">Total Rows</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-matched">0</div><div class="stat-label">Matched Rows</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-unmatched">0</div><div class="stat-label">Unmatched Rows</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-vessel">0</div><div class="stat-label">Vessels Updated</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-imo">0</div><div class="stat-label">IMOs Updated</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-handover">0</div><div class="stat-label">Handovers Updated</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-shop">0</div><div class="stat-label">Shop Tests Updated</div></div>
-        <div class="stat-item"><div class="stat-value" id="st-skipped" style="color: #d97706;">0</div><div class="stat-label">Skipped (Shoptested)</div></div>
+<header class="app-header">
+  <div class="wrap">
+    <div class="header-brand">
+      <div class="brand-mark" aria-label="Cargo ship logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 16h18l-2 4H5l-2-4Z"/>
+          <path d="M5 16V11h14v5"/>
+          <path d="M7 11V8h3v3"/>
+          <path d="M15 11V7h3v4"/>
+          <path d="M9 11v-2h2v2"/>
+          <path d="M6 14h2v2H6zm4 0h2v2m4-2h2v2"/>
+          <path d="M2 20c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2"/>
+        </svg>
+      </div>
+      <div class="header-copy">
+        <div class="header-top">
+          <div class="title-group">
+            <h1>Vessel File Updater</h1>
+          </div>
+          <div class="welcome-badge">Welcome, Xu Zhi Jun</div>
+        </div>
+        <p>Update WiDE dashboard easily by uploading your Excel and database files.</p>
       </div>
     </div>
-    <button id="downloadBtn" class="btn-download" onclick="downloadFile()">⬇️ Download Updated File</button>
   </div>
+</header>
+
+<div class="wrap">
+
+  <nav class="route" aria-label="Progress">
+    <div class="route-step active" data-step="1">
+      <div class="route-dot">1</div><div class="route-label">Upload files</div>
+    </div>
+    <div class="route-line" data-line="1"></div>
+    <div class="route-step" data-step="2">
+      <div class="route-dot">2</div><div class="route-label">Process</div>
+    </div>
+    <div class="route-line" data-line="2"></div>
+    <div class="route-step" data-step="3">
+      <div class="route-dot">3</div><div class="route-label">Review &amp; download</div>
+    </div>
+  </nav>
+
+  <!-- Upload card -->
+  <section class="card" id="uploadCard">
+    <h2>1. Upload your files</h2>
+    <p class="card-sub">Both files are processed entirely in your browser — nothing is uploaded to a server.</p>
+
+    <div class="upload-grid">
+      <div>
+        <p class="dz-label">Submit WiDE Dashboard Excel</p>
+        <div class="dropzone" id="dzUpdate" tabindex="0" role="button" aria-label="Upload the WiDE dashboard Excel file">
+          <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+          <p class="dz-title">Drag &amp; drop, or click to browse</p>
+          <p class="dz-hint">.xlsx / .xlsm — your WiDE dashboard workbook (dashboard sheet only)</p>
+        </div>
+        <input type="file" id="fileUpdate" accept=".xlsx,.xlsm,.xls">
+      </div>
+
+      <div>
+        <p class="dz-label">Vessel database</p>
+        <div class="dropzone" id="dzDb" tabindex="0" role="button" aria-label="Upload the vessel database file">
+          <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+          <p class="dz-title">Drag &amp; drop, or click to browse</p>
+          <p class="dz-hint">.xlsx or .csv — the latest vessel records</p>
+        </div>
+        <input type="file" id="fileDb" accept=".xlsx,.xlsm,.xls,.csv">
+        <div id="sheetPickerDb" class="sheet-picker" style="display:none;">
+          <label for="sheetSelectDb">Sheet to read</label>
+          <select id="sheetSelectDb"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions-row">
+      <button class="btn btn-primary" id="btnProcess" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Process files
+      </button>
+      <button class="rules-toggle" id="rulesToggle" type="button">How matching &amp; updates work</button>
+    </div>
+
+    <div class="rules-panel" id="rulesPanel">
+      <strong>Matching</strong>
+      <ul>
+        <li>Rows are matched only by <strong>DB Number</strong> — vessel names are never used for matching, since names can change.</li>
+        <li>Each row's Primary DB Number is checked first; if there's no match, its Secondary DB Number is tried as a fallback.</li>
+        <li>Rows with no match on either DB Number are left completely unchanged.</li>
+      </ul>
+      <strong>Fields updated</strong>
+      <ul>
+        <li>Only <strong>Vessel Name, IMO Number, Handover Date,</strong> and <strong>Shop Test Date</strong> are ever changed on existing rows. Every other column is left exactly as it was.</li>
+        <li>A blank value in the database never erases an existing value in your file.</li>
+        <li>Handover Date is only updated when the database date is <strong>1 Jan 2025 or later</strong>.</li>
+        <li>If a Shop Test cell already contains the word "shoptested", it is left untouched.</li>
+        <li>All dates are written as <strong>DD/MM/YYYY</strong>.</li>
+      </ul>
+      <strong>New vessels</strong>
+      <ul>
+        <li>Any database record whose DB Number doesn't match an existing row is added as a <strong>new row at the bottom</strong> of the sheet, in database order.</li>
+        <li>New rows are filled in from every matching column in the database (including Hull Number, Owner, DB Numbers, Licensee and Vessel Type), and are styled to match the existing table.</li>
+        <li>Handover Date on a new row still only gets filled in if it's 1 Jan 2025 or later — otherwise it's left blank, just like on an existing row.</li>
+        <li>A database record with no DB Number at all can't be reliably tracked, so it's skipped rather than added.</li>
+      </ul>
+    </div>
+
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-stage" id="progressStage">Reading files…</div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-pct" id="progressPct">0%</div>
+    </div>
+  </section>
+
+  <!-- Results card -->
+  <section class="card" id="resultsCard" style="display:none;">
+    <h2>Update summary</h2>
+    <p class="card-sub" id="resultsSub">Here's what changed.</p>
+
+    <div class="stat-grid">
+      <div class="stat neutral"><div class="stat-num" id="statTotal">0</div><div class="stat-label">Rows processed</div></div>
+      <div class="stat good"><div class="stat-num" id="statMatched">0</div><div class="stat-label">Matched</div></div>
+      <div class="stat bad"><div class="stat-num" id="statUnmatched">0</div><div class="stat-label">Unmatched</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statShoptested">0</div><div class="stat-label">Skipped (already shoptested)</div></div>
+    </div>
+
+    <div class="subgrid-title">Fields updated</div>
+    <div class="stat-grid">
+      <div class="stat neutral"><div class="stat-num" id="statVessel">0</div><div class="stat-label">Vessel names</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statImo">0</div><div class="stat-label">IMO numbers</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statHandover">0</div><div class="stat-label">Handover dates</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statShoptest">0</div><div class="stat-label">Shop test dates</div></div>
+    </div>
+
+    <div class="subgrid-title">New vessels</div>
+    <div class="stat-grid" style="grid-template-columns:1fr;">
+      <div class="stat good"><div class="stat-num" id="statNewVessels">0</div><div class="stat-label">Added as new rows at the bottom</div></div>
+    </div>
+
+    <ul class="notes-list" id="notesList"></ul>
+
+    <div class="results-actions">
+      <button class="btn btn-download" id="btnDownload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+        Download updated Excel file
+      </button>
+      <button class="btn btn-ghost" id="btnReset">Process another file</button>
+    </div>
+  </section>
+
+  <p class="privacy-note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.4 8.4-8 11-4.6-2.6-8-6-8-11V5l8-3z"/></svg>
+    Files are processed locally in your browser and are never uploaded anywhere.
+  </p>
 </div>
 
 <script>
-  let processedBuffer = null;
+(function(){
+  "use strict";
 
-  function handleFileSelect(input, labelId) {
-    if (input.files.length > 0) {
-      document.getElementById(labelId).innerText = "Selected: " + input.files[0].name;
-    }
-  }
+  /* ======================================================================
+     UTILITIES
+     ====================================================================== */
 
-  function cleanStr(val) {
-    if (val === null || val === undefined) return "";
+  // Normalize a DB Number for matching: trims whitespace, strips a trailing
+  // ".0" from numeric-looking strings, and strips leading zeros from purely
+  // numeric strings so "025462", 25462 and "25462.0" all compare equal.
+  function normalizeId(val){
+    if (val === null || val === undefined) return '';
     let s = String(val).trim();
-    if (s.endsWith('.0')) s = s.slice(0, -2);
+    if (s === '') return '';
+    if (/^\d+\.0+$/.test(s)) s = s.split('.')[0];
+    if (/^\d+$/.test(s)) s = String(parseInt(s, 10));
     return s;
   }
 
-  function normalizeHeader(value) {
-    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  // True if a cell value should be treated as "no data" — covers null,
+  // undefined, empty strings, and whitespace-only strings (including
+  // non-breaking spaces, which show up throughout real workbooks).
+  function isEmptyVal(val){
+    if (val === null || val === undefined) return true;
+    if (val instanceof Date) return isNaN(val.getTime());
+    const s = String(val).replace(/\u00a0/g, '').trim();
+    return s === '';
   }
 
-  function findHeaderIndex(headers, patterns, occurrence = 0) {
-    const normalizedHeaders = headers.map(h => normalizeHeader(h));
-    let matchCount = 0;
+  function pad2(n){ return n < 10 ? '0' + n : String(n); }
 
-    for (let index = 0; index < normalizedHeaders.length; index++) {
-      const header = normalizedHeaders[index];
-      const matchesPattern = patterns.some(pattern => {
-        const target = normalizeHeader(pattern);
-        return header === target || header.includes(target) || target.includes(header);
-      });
-
-      if (matchesPattern) {
-        if (matchCount === occurrence) return index;
-        matchCount += 1;
-      }
-    }
-
-    return -1;
+  function formatDMY(d){
+    return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
   }
 
-  function buildColumnMap(headers) {
-    const defaults = {
-      vesselName: 0,
-      imo: 2,
-      primaryDb: 5,
-      secondaryDb: 6,
-      handoverDate: 4,
-      priShopDate: 7,
-      secShopDate: 8
-    };
+  // Parses a flexible set of date representations found in real workbooks:
+  //   - native JS Date objects (from SheetJS cellDates)
+  //   - Excel serial date numbers
+  //   - "YYYY-MM-DD" / "YYYY-MM" optionally followed by an annotation like
+  //     " (estimated)" or " (shoptested)"
+  //   - "DD/MM/YYYY"
+  // Returns a Date (local, time stripped to midnight) or null if it can't
+  // be confidently parsed.
+  function parseFlexibleDate(val){
+    if (val === null || val === undefined) return null;
 
-    const map = { ...defaults };
-    if (!Array.isArray(headers)) return map;
-
-    const setField = (field, patterns, occurrence = 0) => {
-      const idx = findHeaderIndex(headers, patterns, occurrence);
-      if (idx !== -1) map[field] = idx;
-    };
-
-    setField('vesselName', ['vessel', 'vesselname', 'shipname', 'ship']);
-    setField('imo', ['imo', 'imo number']);
-    setField('primaryDb', ['dbnumber', 'dbnumber1', 'db1', 'db01', 'dbone', 'primarydb', 'pridb'], 0);
-    setField('secondaryDb', ['dbnumber', 'dbnumber2', 'db2', 'db02', 'dbtwo', 'secondarydb', 'secdb'], 1);
-    setField('handoverDate', ['handoverdate', 'handover'], 0);
-    setField('priShopDate', ['shoptest', 'shopdate1', 'prishopdate', 'prishop', 'prishoptest'], 0);
-    setField('secShopDate', ['shoptest', 'shopdate2', 'secshopdate', 'secshop', 'secshoptest'], 1);
-    return map;
-  }
-
-  function getRowValue(row, columnMap, field, fallbackIndex) {
-    if (columnMap && columnMap[field] !== undefined) return row[columnMap[field]];
-    return row[fallbackIndex];
-  }
-
-  function getRawTextValue(val) {
-    if (val === null || val === undefined) return '';
-    if (val instanceof Date) {
-      return `${String(val.getDate()).padStart(2, '0')}/${String(val.getMonth() + 1).padStart(2, '0')}/${val.getFullYear()}`;
-    }
-    return String(val);
-  }
-
-  function dateFromExcelSerial(serial) {
-    const excelEpoch = new Date(Date.UTC(1899, 11, 31));
-    let days = Math.floor(serial);
-    if (days > 59) days -= 1;
-    excelEpoch.setUTCDate(excelEpoch.getUTCDate() + days);
-    const fraction = serial - Math.floor(serial);
-    return new Date(excelEpoch.getTime() + fraction * 24 * 60 * 60 * 1000);
-  }
-
-  function formatDate(val) {
-    if (val === null || val === undefined || val === '') return null;
-
-    if (val instanceof Date) {
+    if (val instanceof Date){
       if (isNaN(val.getTime())) return null;
-      return {
-        formatted: `${String(val.getDate()).padStart(2, '0')}/${String(val.getMonth() + 1).padStart(2, '0')}/${val.getFullYear()}`,
-        dateObj: val
-      };
+      return new Date(val.getFullYear(), val.getMonth(), val.getDate());
     }
 
-    if (typeof val === 'number') {
-      const d = dateFromExcelSerial(val);
-      if (!isNaN(d.getTime())) {
-        return {
-          formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
-          dateObj: d
-        };
-      }
+    if (typeof val === 'number'){
+      // Excel serial date -> calendar date via SheetJS's own converter.
+      try {
+        const parsed = XLSX.SSF.parse_date_code(val);
+        if (parsed && parsed.y) return new Date(parsed.y, parsed.m - 1, parsed.d);
+      } catch(e){ /* fall through */ }
       return null;
     }
 
-    const str = String(val).trim();
-    if (!str) return null;
+    let s = String(val).trim();
+    if (s === '') return null;
+    // Strip a trailing parenthetical annotation, e.g. "2027-09-15 (estimated)"
+    s = s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (s === '') return null;
 
-    if (/^\d+(\.\d+)?$/.test(str)) {
-      const serial = Number(str);
-      if (serial > 59 && serial < 60000) {
-        const d = dateFromExcelSerial(serial);
-        if (!isNaN(d.getTime())) {
-          return {
-            formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
-            dateObj: d
-          };
-        }
-      }
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m){
+      const d = new Date(+m[1], +m[2]-1, +m[3]);
+      return isValidYMD(d, +m[1], +m[2], +m[3]) ? d : null;
     }
-
-    let d = new Date(str);
-    if (isNaN(d.getTime())) {
-      const match = str.match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
-      if (match) {
-        d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-      } else {
-        const alt = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-        if (alt) {
-          const first = Number(alt[1]);
-          const second = Number(alt[2]);
-          const year = Number(alt[3]);
-          d = first > 12
-            ? new Date(year, second - 1, first)
-            : new Date(year, first - 1, second);
-        }
-      }
+    m = s.match(/^(\d{4})-(\d{2})$/);
+    if (m){
+      const d = new Date(+m[1], +m[2]-1, 1);
+      return isValidYMD(d, +m[1], +m[2], 1) ? d : null;
     }
-
-    if (isNaN(d.getTime())) return null;
-    return {
-      formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
-      dateObj: d
-    };
+    // DD/MM/YYYY (confirmed day-first ordering from source data)
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m){
+      const d = new Date(+m[3], +m[2]-1, +m[1]);
+      return isValidYMD(d, +m[3], +m[2], +m[1]) ? d : null;
+    }
+    return null;
   }
 
-  // Convert various buffer types to ArrayBuffer for XLSX.write consumption
-  function toArrayBuffer(buf) {
-    if (buf instanceof ArrayBuffer) return buf;
-    if (ArrayBuffer.isView(buf)) {
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    }
-    return buf;
+  function isValidYMD(d, y, mo, day){
+    return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === day;
   }
 
-  // Set a cell value in a SheetJS sheet (zero-based row/col)
-  function setCellValue(sheet, rowIndex, colIndex, value) {
-    const cellRef = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex });
-    const textValue = getRawTextValue(value);
-    sheet[cellRef] = { t: 's', v: textValue, w: textValue };
-
-    if (!sheet['!ref']) {
-      sheet['!ref'] = cellRef;
-      return;
-    }
-
-    const range = XLSX.utils.decode_range(sheet['!ref']);
-    if (rowIndex < range.s.r) range.s.r = rowIndex;
-    if (rowIndex > range.e.r) range.e.r = rowIndex;
-    if (colIndex < range.s.c) range.s.c = colIndex;
-    if (colIndex > range.e.c) range.e.c = colIndex;
-    sheet['!ref'] = XLSX.utils.encode_range(range);
+  // Best-effort plain-text rendering of a cell's current value, used for
+  // change-detection and for the "already shoptested" check.
+  function cellDisplayString(val){
+    if (val === null || val === undefined) return '';
+    if (val instanceof Date) return formatDMY(val);
+    return String(val).replace(/\u00a0/g, ' ').trim();
   }
 
-  async function parseDatabase(file) {
-    const primaryDbMap = new Map();
-    const secondaryDbMap = new Map();
+  function humanFileSize(bytes){
+    if (bytes < 1024) return bytes + ' B';
+    const units = ['KB','MB','GB'];
+    let u = -1;
+    do { bytes /= 1024; u++; } while (bytes >= 1024 && u < units.length - 1);
+    return bytes.toFixed(bytes < 10 ? 1 : 0) + ' ' + units[u];
+  }
 
-    if (file.name.toLowerCase().endsWith('.csv')) {
-      return new Promise((resolve, reject) => {
-        file.text().then(text => {
-          const delimiter = (() => {
-            const candidates = [',', '\t', ';', '|'];
-            const sample = (text || '').split(/\r?\n/).slice(0, 20).join('\n');
-            const counts = candidates.map(delim => ({ delim, count: (sample.match(new RegExp(delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length }));
-            const best = counts.sort((a, b) => b.count - a.count)[0];
-            return best && best.count > 0 ? best.delim : '\t';
-          })();
+  function baseName(name){
+    return name.replace(/\.[^.]+$/, '');
+  }
 
-          Papa.parse(text, {
-            delimiter,
-            skipEmptyLines: true,
-            complete: (results) => {
-              const rows = results.data || [];
-              const headers = rows[0] || [];
-              const columnMap = buildColumnMap(headers);
-              const dataRows = rows.slice(1);
-              dataRows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
-              resolve({ primaryDbMap, secondaryDbMap });
-            },
-            error: reject
-          });
-        }).catch(reject);
-      });
-    }
+  function yieldToUI(){
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
 
-    // For XLSX files, sanitize first to remove problematic <autoFilter>/<filters> nodes
-    let ab;
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith('.xlsx')) {
-      try {
-        ab = await sanitizeXlsx(file);
-      } catch (e) {
-        // Fallback: try reading original buffer if sanitization fails
-        console.warn('sanitizeXlsx failed, falling back to raw buffer:', e);
-        ab = await file.arrayBuffer();
-      }
+  /* ======================================================================
+     STATE
+     ====================================================================== */
+
+  const state = {
+    update: { file: null, workbook: null, sheetName: null },
+    db: { file: null, workbook: null, sheetName: null },
+    outputBlob: null,
+    outputName: 'updated.xlsx'
+  };
+
+  /* ======================================================================
+     DOM REFS
+     ====================================================================== */
+
+  const el = id => document.getElementById(id);
+  const dzUpdate = el('dzUpdate'), dzDb = el('dzDb');
+  const fileUpdate = el('fileUpdate'), fileDb = el('fileDb');
+  const sheetPickerDb = el('sheetPickerDb'), sheetSelectDb = el('sheetSelectDb');
+  const btnProcess = el('btnProcess');
+  const rulesToggle = el('rulesToggle'), rulesPanel = el('rulesPanel');
+  const progressWrap = el('progressWrap'), progressStage = el('progressStage'),
+        progressFill = el('progressFill'), progressPct = el('progressPct');
+  const uploadCard = el('uploadCard'), resultsCard = el('resultsCard');
+  const btnDownload = el('btnDownload'), btnReset = el('btnReset');
+
+  const FILE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>';
+  const REMOVE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+  /* ======================================================================
+     UI HELPERS
+     ====================================================================== */
+
+  function showBanner(){ }
+  function hideBanner(){ }
+
+  function setStep(n){
+    document.querySelectorAll('.route-step').forEach(stepEl => {
+      const s = +stepEl.dataset.step;
+      stepEl.classList.remove('active','done');
+      if (s < n) stepEl.classList.add('done');
+      else if (s === n) stepEl.classList.add('active');
+    });
+    document.querySelectorAll('.route-line').forEach(lineEl => {
+      const s = +lineEl.dataset.line;
+      lineEl.classList.toggle('done', s < n);
+    });
+  }
+
+  function updateProcessButton(){
+    btnProcess.disabled = !(state.update.workbook && state.db.workbook);
+  }
+
+  function renderDropzoneFilled(dz, file, onRemove){
+    dz.classList.add('filled');
+    dz.classList.remove('drag');
+    dz.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    row.innerHTML =
+      '<div class="file-icon">' + FILE_ICON_SVG + '</div>' +
+      '<div class="file-meta">' +
+        '<div class="file-name"></div>' +
+        '<div class="file-size"></div>' +
+      '</div>' +
+      '<button type="button" class="file-remove" aria-label="Remove file">' + REMOVE_ICON_SVG + '</button>';
+    row.querySelector('.file-name').textContent = file.name;
+    row.querySelector('.file-size').textContent = humanFileSize(file.size);
+    row.querySelector('.file-remove').addEventListener('click', (e) => { e.stopPropagation(); onRemove(); });
+    dz.appendChild(row);
+  }
+
+  function resetDropzoneVisual(dz, hint){
+    dz.classList.remove('filled','drag');
+    dz.innerHTML =
+      '<svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>' +
+      '<p class="dz-title">Drag &amp; drop, or click to browse</p>' +
+      '<p class="dz-hint">' + hint + '</p>';
+  }
+
+  function populateSheetPicker(pickerWrap, select, sheetNames, onChange){
+    if (sheetNames.length > 1){
+      select.innerHTML = sheetNames.map(n => '<option value="' + n.replace(/"/g,'&quot;') + '">' + n + '</option>').join('');
+      pickerWrap.style.display = 'block';
+      select.onchange = () => onChange(select.value);
     } else {
-      ab = await file.arrayBuffer();
+      pickerWrap.style.display = 'none';
     }
-
-    const workbook = XLSX.read(ab, { type: 'array', cellStyles: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '', raw: false });
-    const headers = rows[0] || [];
-    const columnMap = buildColumnMap(headers);
-
-    rows.slice(1).forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
-    return { primaryDbMap, secondaryDbMap };
   }
 
-  // Sanitize an XLSX file by removing <autoFilter> and <filters> XML nodes from worksheet/table XML parts
-  
-  async function sanitizeXlsx(file) {
-    try {
-      const ab = await file.arrayBuffer();
-      const zip = await JSZip.loadAsync(ab);
-      const files = Object.keys(zip.files);
-      const xmlPaths = files.filter(p => /(^|\/)xl\/(worksheets|tables)\/.+\.xml$/i.test(p));
-      for (const path of xmlPaths) {
+  /* ======================================================================
+     FILE LOADING
+     ====================================================================== */
+
+  function readFileAsWorkbook(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('The file could not be read from disk.'));
+      reader.onload = (e) => {
         try {
-          const text = await zip.file(path).async('text');
-          let updated = text;
-          // replace autoFilter blocks with a self-closing tag preserving attributes to avoid corrupting structure
-          updated = updated.replace(/<autoFilter([^>]*)>[\s\S]*?<\/autoFilter>/gi, '<autoFilter$1/>');
-          // replace filters blocks with self-closing tag
-          updated = updated.replace(/<filters([^>]*)>[\s\S]*?<\/filters>/gi, '<filters$1/>');
-          // replace filterColumn elements with self-closing tag (preserve attributes)
-          updated = updated.replace(/<filterColumn([^>]*)>[\s\S]*?<\/filterColumn>/gi, '<filterColumn$1/>');
-          if (updated !== text) {
-            zip.file(path, updated);
+          const data = new Uint8Array(e.target.result);
+          const wb = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true, cellNF: false, cellFormula: true, WTF: false });
+          if (!wb.SheetNames || wb.SheetNames.length === 0){
+            reject(new Error('No worksheets were found in this file.'));
+            return;
           }
-        } catch (e) {
-          // ignore read/parse errors for individual files
+          resolve(wb);
+        } catch(err){
+          reject(new Error('This file could not be parsed as Excel or CSV. Please check the file and try again.'));
         }
-      }
-      const out = await zip.generateAsync({ type: 'uint8array' });
-      return out.buffer ? out.buffer : out;
-    } catch (e) {
-      throw e;
-    }
-  }
-
-  function extractDbRow(r, priMap, secMap, columnMap) {
-    const priDb = cleanStr(getRowValue(r, columnMap, 'primaryDb', 5));
-    const secDb = cleanStr(getRowValue(r, columnMap, 'secondaryDb', 6));
-    const priShopRaw = getRawTextValue(getRowValue(r, columnMap, 'priShopDate', 7));
-    const secShopRaw = getRawTextValue(getRowValue(r, columnMap, 'secShopDate', 8));
-    const values = Array.from({ length: 8 }, (_, index) => getRawTextValue(getRowValue(r, columnMap, `col${index}`, index)));
-    const record = {
-      values,
-      vesselName: values[0] || '',
-      imo: values[2] || '',
-      handoverDate: values[4] || '',
-      priShopRaw: priShopRaw || secShopRaw || '',
-      secShopRaw: secShopRaw || priShopRaw || ''
-    };
-    if (priDb) priMap.set(priDb, record);
-    if (secDb) secMap.set(secDb, record);
-  }
-
-  async function processFiles() {
-    const targetEl = document.getElementById('excelFile');
-    const dbEl = document.getElementById('dbFile');
-
-    if (!targetEl.files.length || !dbEl.files.length) {
-      alert("Please select both files before processing.");
-      return;
-    }
-
-    const btn = document.getElementById('processBtn');
-    btn.disabled = true;
-    btn.innerText = "Processing...";
-
-    try {
-      const { primaryDbMap, secondaryDbMap } = await parseDatabase(dbEl.files[0]);
-
-      // Processing stats
-      let stats = {
-        total: 0, matched: 0, unmatched: 0,
-        vessel: 0, imo: 0, handover: 0, shop: 0, skipped: 0
       };
+      reader.readAsArrayBuffer(file);
+    });
+  }
 
-      // Use SheetJS (XLSX) to read and update the target workbook to avoid ExcelJS XML parser crashes
-      // Sanitize target XLSX to remove problematic filter nodes, then read
-      let targetBuffer;
-      if (targetEl.files[0].name.toLowerCase().endsWith('.xlsx')) {
-        try {
-          targetBuffer = await sanitizeXlsx(targetEl.files[0]);
-        } catch (e) {
-          console.warn('sanitizeXlsx failed for target, using raw buffer', e);
-          targetBuffer = await targetEl.files[0].arrayBuffer();
-        }
-      } else {
-        targetBuffer = await targetEl.files[0].arrayBuffer();
+  async function handleUpdateFile(file){
+    hideBanner();
+    try {
+      const wb = await readFileAsWorkbook(file);
+      state.update.file = file;
+      state.update.workbook = wb;
+      state.update.sheetName = wb.SheetNames[0];
+      renderDropzoneFilled(dzUpdate, file, removeUpdateFile);
+    } catch(err){
+      showBanner('error', 'Could not read the WiDE dashboard Excel file', err.message);
+      removeUpdateFile();
+    }
+    updateProcessButton();
+  }
+
+  async function handleDbFile(file){
+    hideBanner();
+    try {
+      const wb = await readFileAsWorkbook(file);
+      state.db.file = file;
+      state.db.workbook = wb;
+      state.db.sheetName = wb.SheetNames[0];
+      renderDropzoneFilled(dzDb, file, removeDbFile);
+      populateSheetPicker(sheetPickerDb, sheetSelectDb, wb.SheetNames, (name) => { state.db.sheetName = name; });
+      sheetSelectDb.value = state.db.sheetName;
+    } catch(err){
+      showBanner('error', 'Could not read the vessel database file', err.message);
+      removeDbFile();
+    }
+    updateProcessButton();
+  }
+
+  function removeUpdateFile(){
+    state.update = { file: null, workbook: null, sheetName: null };
+    resetDropzoneVisual(dzUpdate, '.xlsx / .xlsm — your WiDE dashboard workbook');
+    fileUpdate.value = '';
+    updateProcessButton();
+  }
+  function removeDbFile(){
+    state.db = { file: null, workbook: null, sheetName: null };
+    resetDropzoneVisual(dzDb, '.xlsx or .csv — the latest vessel records');
+    sheetPickerDb.style.display = 'none';
+    fileDb.value = '';
+    updateProcessButton();
+  }
+
+  /* ======================================================================
+     DRAG & DROP + CLICK WIRING
+     ====================================================================== */
+
+  function wireDropzone(dz, input, handler){
+    dz.addEventListener('click', () => { if (!dz.classList.contains('filled')) input.click(); });
+    dz.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && !dz.classList.contains('filled')){
+        e.preventDefault(); input.click();
       }
-      const targetWorkbook = XLSX.read(targetBuffer, { type: 'array', cellStyles: true });
-      const sheetName = targetWorkbook.SheetNames[0];
-      const sheet = targetWorkbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '', raw: false });
-      const hasHeaders = rows.length > 0 && rows[0].some(v => cleanStr(v) !== '');
-      const dataRows = hasHeaders ? rows.slice(1) : rows;
+    });
+    ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!dz.classList.contains('filled')) dz.classList.add('drag');
+    }));
+    ['dragleave','drop'].forEach(evt => dz.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dz.classList.remove('drag');
+    }));
+    dz.addEventListener('drop', (e) => {
+      if (dz.classList.contains('filled')) return;
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handler(f);
+    });
+    input.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) handler(f);
+    });
+  }
 
-      dataRows.forEach((row, index) => {
-        const sheetRowIndex = index + (hasHeaders ? 1 : 0); // zero-based for SheetJS encode_cell
-        stats.total++;
+  wireDropzone(dzUpdate, fileUpdate, handleUpdateFile);
+  wireDropzone(dzDb, fileDb, handleDbFile);
 
-        const priDbVal = cleanStr(row[5] || '');
-        const secDbVal = cleanStr(row[6] || '');
+  rulesToggle.addEventListener('click', () => {
+    rulesPanel.classList.toggle('open');
+    rulesToggle.textContent = rulesPanel.classList.contains('open') ? 'Hide matching & update rules' : 'How matching & updates work';
+  });
 
-        let match = null;
-        if (priDbVal && primaryDbMap.has(priDbVal)) {
-          match = primaryDbMap.get(priDbVal);
-        } else if (secDbVal && secondaryDbMap.has(secDbVal)) {
-          match = secondaryDbMap.get(secDbVal);
-        }
+  /* ======================================================================
+     CORE PROCESSING
+     ====================================================================== */
 
-        if (!match) {
-          stats.unmatched++;
-          return;
-        }
+  const HANDOVER_THRESHOLD = new Date(2025, 0, 1);
 
-        stats.matched++;
+  function sheetRowBounds(ws){
+    const ref = ws['!ref'];
+    if (!ref) return null;
+    return XLSX.utils.decode_range(ref);
+  }
 
-        (match.values || []).forEach((value, colIndex) => {
-          setCellValue(sheet, sheetRowIndex, colIndex, value);
-        });
+  function getCell(ws, r, c){
+    const addr = XLSX.utils.encode_cell({ r, c });
+    return ws[addr];
+  }
 
-        stats.vessel++;
-        stats.imo++;
-        stats.handover++;
-        stats.shop++;
+  function getCellValue(ws, r, c){
+    const cell = getCell(ws, r, c);
+    return cell ? cell.v : undefined;
+  }
+
+  // Writes `value` into ws[r,c], choosing type 'n' for finite numbers and
+  // 's' for everything else, clearing any prior formula so the literal
+  // value is what Excel displays, while preserving the existing style ref.
+  function setCellValue(ws, r, c, value, forceType){
+    const addr = XLSX.utils.encode_cell({ r, c });
+    let cell = ws[addr];
+    if (!cell){
+      cell = {};
+      ws[addr] = cell;
+    }
+    delete cell.f;
+    delete cell.z;
+    if (forceType === 'n'){
+      cell.t = 'n';
+      cell.v = value;
+    } else {
+      cell.t = 's';
+      cell.v = value;
+    }
+    delete cell.w; // let consumers recompute the display string
+    // Ensure the written cell is inside the sheet's used range.
+    const range = sheetRowBounds(ws) || { s:{r:0,c:0}, e:{r:0,c:0} };
+    range.s.r = Math.min(range.s.r, r); range.e.r = Math.max(range.e.r, r);
+    range.s.c = Math.min(range.s.c, c); range.e.c = Math.max(range.e.c, c);
+    ws['!ref'] = XLSX.utils.encode_range(range);
+  }
+
+  // Column positions shared by both files (A..J), used throughout.
+  const COL = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9 };
+
+  // Builds a lookup of normalized DB Number -> database record, seeded from
+  // BOTH the primary and secondary DB Number columns of every DB row (a
+  // vessel's identifying number may appear as either "primary" or
+  // "secondary" depending on which field the update file happens to carry).
+  function buildDatabaseIndex(ws){
+    const range = sheetRowBounds(ws);
+    const records = [];
+    const map = new Map();
+    let duplicateCount = 0;
+    let unparsedDateCount = 0;
+
+    if (!range) return { records, map, duplicateCount, unparsedDateCount };
+
+    for (let r = range.s.r + 1; r <= range.e.r; r++){
+      const rec = {
+        vesselName: getCellValue(ws, r, range.s.c + COL.A),
+        hullNumber: getCellValue(ws, r, range.s.c + COL.B),
+        imoNumber:  getCellValue(ws, r, range.s.c + COL.C),
+        owner:      getCellValue(ws, r, range.s.c + COL.D),
+        handoverDate: getCellValue(ws, r, range.s.c + COL.E),
+        primaryId:  getCellValue(ws, r, range.s.c + COL.F),
+        secondaryId:getCellValue(ws, r, range.s.c + COL.G),
+        shopTestDate: getCellValue(ws, r, range.s.c + COL.H),
+        licensee:   getCellValue(ws, r, range.s.c + COL.I),
+        vesselType: getCellValue(ws, r, range.s.c + COL.J)
+      };
+      // skip fully blank rows
+      if (isEmptyVal(rec.vesselName) && isEmptyVal(rec.primaryId) && isEmptyVal(rec.secondaryId)) continue;
+
+      const idx = records.length;
+      records.push(rec);
+
+      [rec.primaryId, rec.secondaryId].forEach(idVal => {
+        const key = normalizeId(idVal);
+        if (!key) return;
+        if (map.has(key)) duplicateCount++;
+        else map.set(key, idx);
       });
 
-      // Write workbook back to an ArrayBuffer (SheetJS)
-      processedBuffer = toArrayBuffer(XLSX.write(targetWorkbook, {
-        bookType: 'xlsx',
-        type: 'array',
-        cellStyles: true
-      }));
-
-      // Display Stats
-      document.getElementById('st-total').innerText = stats.total;
-      document.getElementById('st-matched').innerText = stats.matched;
-      document.getElementById('st-unmatched').innerText = stats.unmatched;
-      document.getElementById('st-vessel').innerText = stats.vessel;
-      document.getElementById('st-imo').innerText = stats.imo;
-      document.getElementById('st-handover').innerText = stats.handover;
-      document.getElementById('st-shop').innerText = stats.shop;
-      document.getElementById('st-skipped').innerText = stats.skipped;
-
-      document.getElementById('results').style.display = 'block';
-
-    } catch (err) {
-      alert("An error occurred during processing: " + err.message);
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-      btn.innerText = "Process Files";
+      if (!isEmptyVal(rec.handoverDate) && parseFlexibleDate(rec.handoverDate) === null) unparsedDateCount++;
     }
+
+    return { records, map, duplicateCount, unparsedDateCount };
   }
 
-  function downloadFile() {
-    if (!processedBuffer) return;
-    const blob = new Blob([processedBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+  // Copies the style reference from one cell to another (used to make newly
+  // appended rows visually match the existing table instead of rendering
+  // with default/no formatting).
+  function copyCellStyle(ws, fromR, toR, c){
+    const fromCell = getCell(ws, fromR, c);
+    if (!fromCell || fromCell.s === undefined) return;
+    const addr = XLSX.utils.encode_cell({ r: toR, c });
+    if (!ws[addr]) ws[addr] = {};
+    ws[addr].s = fromCell.s;
+  }
+
+  // Writes a database value into a brand-new row's cell, choosing a sensible
+  // type (numeric vs text). Leaves the cell untouched (blank) if the
+  // database value itself is blank.
+  function writeNewRowField(ws, r, c, val){
+    if (isEmptyVal(val)) return;
+    const raw = String(val).trim();
+    if (/^\d+$/.test(raw)) setCellValue(ws, r, c, parseInt(raw, 10), 'n');
+    else setCellValue(ws, r, c, raw, 's');
+  }
+
+  function findLastDataRow(ws, range, numCols){
+    let last = range.s.r; // header row, i.e. "no data" if nothing found below
+    for (let r = range.s.r + 1; r <= range.e.r; r++){
+      for (let c = range.s.c; c < range.s.c + numCols; c++){
+        const v = getCellValue(ws, r, c);
+        if (!isEmptyVal(v)){ last = r; break; }
+      }
+    }
+    return last;
+  }
+
+  async function processWorkbooks(){
+    const updateWs = state.update.workbook.Sheets[state.update.sheetName];
+    const dbWs = state.db.workbook.Sheets[state.db.sheetName];
+
+    setProgress('Reading database records…', 8);
+    await yieldToUI();
+    const dbIndex = buildDatabaseIndex(dbWs);
+
+    setProgress('Scanning workbook rows…', 20);
+    await yieldToUI();
+
+    const range = sheetRowBounds(updateWs);
+    if (!range) throw new Error('The selected sheet in the WiDE dashboard Excel file appears to be empty.');
+
+    const lastRow = findLastDataRow(updateWs, range, 8);
+    const firstDataRow = range.s.r + 1;
+
+    const summary = {
+      total: 0, matched: 0, unmatched: 0,
+      vesselUpdated: 0, imoUpdated: 0, handoverUpdated: 0, shopTestUpdated: 0,
+      skippedShoptested: 0, newVesselsAdded: 0
+    };
+
+    const matchedDbIndices = new Set();
+    const totalRows = Math.max(0, lastRow - firstDataRow + 1);
+    let processedRows = 0;
+
+    for (let r = firstDataRow; r <= lastRow; r++){
+      summary.total++;
+
+      const colA = range.s.c + COL.A, colC = range.s.c + COL.C, colE = range.s.c + COL.E,
+            colF = range.s.c + COL.F, colG = range.s.c + COL.G, colH = range.s.c + COL.H;
+
+      const primaryId = normalizeId(getCellValue(updateWs, r, colF));
+      const secondaryId = normalizeId(getCellValue(updateWs, r, colG));
+
+      let recIdx = null;
+      if (primaryId && dbIndex.map.has(primaryId)) recIdx = dbIndex.map.get(primaryId);
+      else if (secondaryId && dbIndex.map.has(secondaryId)) recIdx = dbIndex.map.get(secondaryId);
+
+      if (recIdx === null){
+        summary.unmatched++;
+      } else {
+        summary.matched++;
+        matchedDbIndices.add(recIdx);
+        const rec = dbIndex.records[recIdx];
+
+        // --- Vessel Name (col A) ---
+        if (!isEmptyVal(rec.vesselName)){
+          const newVal = String(rec.vesselName).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colA));
+          if (newVal !== curVal){
+            setCellValue(updateWs, r, colA, newVal, 's');
+            summary.vesselUpdated++;
+          }
+        }
+
+        // --- IMO Number (col C) ---
+        if (!isEmptyVal(rec.imoNumber)){
+          const raw = String(rec.imoNumber).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colC));
+          if (raw !== curVal){
+            if (/^\d+$/.test(raw)) setCellValue(updateWs, r, colC, parseInt(raw, 10), 'n');
+            else setCellValue(updateWs, r, colC, raw, 's');
+            summary.imoUpdated++;
+          }
+        }
+
+        // --- Handover Date (col E) — only if DB date >= 1 Jan 2025 ---
+        if (!isEmptyVal(rec.handoverDate)){
+          const parsed = parseFlexibleDate(rec.handoverDate);
+          if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
+            const newVal = formatDMY(parsed);
+            const curVal = cellDisplayString(getCellValue(updateWs, r, colE));
+            if (newVal !== curVal){
+              setCellValue(updateWs, r, colE, newVal, 's');
+              summary.handoverUpdated++;
+            }
+          }
+        }
+
+        // --- Shop Test Date (col H) — single column now ---
+        const curShopRaw = getCellValue(updateWs, r, colH);
+        const curShopStr = cellDisplayString(curShopRaw);
+        if (curShopStr.toLowerCase().includes('shoptested')){
+          summary.skippedShoptested++;
+        } else if (!isEmptyVal(rec.shopTestDate)){
+          const chosen = parseFlexibleDate(rec.shopTestDate);
+          if (chosen){
+            const newVal = formatDMY(chosen);
+            if (newVal !== curShopStr){
+              setCellValue(updateWs, r, colH, newVal, 's');
+              summary.shopTestUpdated++;
+            }
+          }
+        }
+      }
+
+      processedRows++;
+      if (processedRows % 100 === 0){
+        const pct = 20 + Math.round((processedRows / Math.max(totalRows,1)) * 55);
+        setProgress('Matching &amp; updating rows… (' + processedRows + ' / ' + totalRows + ')', pct);
+        await yieldToUI();
+      }
+    }
+
+    // --- Append any database vessels that had no match in the workbook ---
+    setProgress('Adding new vessels…', 80);
+    await yieldToUI();
+
+    let nextRow = lastRow + 1;
+    const styleSourceRow = lastRow >= firstDataRow ? lastRow : -1;
+
+    for (let i = 0; i < dbIndex.records.length; i++){
+      if (matchedDbIndices.has(i)) continue;
+      const rec = dbIndex.records[i];
+      const hasId = !isEmptyVal(rec.primaryId) || !isEmptyVal(rec.secondaryId);
+      if (!hasId) continue; // no reliable DB Number — nothing to track it by, skip
+
+      const cols = [COL.A,COL.B,COL.C,COL.D,COL.E,COL.F,COL.G,COL.H,COL.I,COL.J];
+      if (styleSourceRow >= 0){
+        cols.forEach(c => copyCellStyle(updateWs, styleSourceRow, nextRow, range.s.c + c));
+      }
+
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.A, rec.vesselName);
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.B, rec.hullNumber);
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.C, rec.imoNumber);
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.D, rec.owner);
+
+      if (!isEmptyVal(rec.handoverDate)){
+        const parsed = parseFlexibleDate(rec.handoverDate);
+        if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
+          setCellValue(updateWs, nextRow, range.s.c + COL.E, formatDMY(parsed), 's');
+        }
+      }
+
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.F, rec.primaryId);
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.G, rec.secondaryId);
+
+      if (!isEmptyVal(rec.shopTestDate)){
+        const chosen = parseFlexibleDate(rec.shopTestDate);
+        if (chosen) setCellValue(updateWs, nextRow, range.s.c + COL.H, formatDMY(chosen), 's');
+      }
+
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.I, rec.licensee);
+      writeNewRowField(updateWs, nextRow, range.s.c + COL.J, rec.vesselType);
+
+      summary.newVesselsAdded++;
+      nextRow++;
+    }
+
+    setProgress('Building the updated workbook…', 92);
+    await yieldToUI();
+
+    const out = XLSX.write(state.update.workbook, { bookType: 'xlsx', type: 'array', cellStyles: true, cellDates: true });
+    const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+    setProgress('Done', 100);
+    await yieldToUI();
+
+    return { summary, blob, dbIndex };
+  }
+
+  function setProgress(stageHtml, pct){
+    progressStage.innerHTML = stageHtml;
+    progressFill.style.width = pct + '%';
+    progressPct.textContent = pct + '%';
+  }
+
+  /* ======================================================================
+     RUN
+     ====================================================================== */
+
+  btnProcess.addEventListener('click', async () => {
+    hideBanner();
+    btnProcess.disabled = true;
+    progressWrap.classList.add('active');
+    setStep(2);
+    setProgress('Reading files…', 4);
+
+    try {
+      await yieldToUI();
+      const { summary, blob, dbIndex } = await processWorkbooks();
+
+      state.outputBlob = blob;
+      state.outputName = baseName(state.update.file.name) + '_updated.xlsx';
+
+      renderResults(summary, dbIndex);
+      progressWrap.classList.remove('active');
+      uploadCard.style.display = 'none';
+      resultsCard.style.display = 'block';
+      setStep(3);
+    } catch(err){
+      progressWrap.classList.remove('active');
+      showBanner('error', 'Processing failed', err.message || 'An unexpected error occurred while processing the files.');
+      btnProcess.disabled = false;
+      setStep(1);
+    }
+  });
+
+  function renderResults(summary, dbIndex){
+    el('statTotal').textContent = summary.total;
+    el('statMatched').textContent = summary.matched;
+    el('statUnmatched').textContent = summary.unmatched;
+    el('statShoptested').textContent = summary.skippedShoptested;
+    el('statVessel').textContent = summary.vesselUpdated;
+    el('statImo').textContent = summary.imoUpdated;
+    el('statHandover').textContent = summary.handoverUpdated;
+    el('statShoptest').textContent = summary.shopTestUpdated;
+    el('statNewVessels').textContent = summary.newVesselsAdded;
+
+    el('resultsSub').textContent = 'The dashboard workbook was checked row by row against ' + dbIndex.records.length + ' database records' +
+      (summary.newVesselsAdded > 0 ? ', and ' + summary.newVesselsAdded + ' new vessel' + (summary.newVesselsAdded===1?'':'s') + ' ' + (summary.newVesselsAdded===1?'was':'were') + ' added at the bottom' : '') + '.';
+
+    const notes = [];
+    if (dbIndex.duplicateCount > 0){
+      notes.push(dbIndex.duplicateCount + ' duplicate DB Number' + (dbIndex.duplicateCount===1?'':'s') + ' were found in the database; the first matching record was used in each case.');
+    }
+    if (dbIndex.unparsedDateCount > 0){
+      notes.push(dbIndex.unparsedDateCount + ' date value' + (dbIndex.unparsedDateCount===1?'':'s') + ' in the database could not be recognized and were skipped, leaving the existing values in place.');
+    }
+    if (summary.unmatched > 0){
+      notes.push(summary.unmatched + ' row' + (summary.unmatched===1?'':'s') + ' had no matching DB Number in the database and were left completely unchanged.');
+    }
+    const notesList = el('notesList');
+    notesList.innerHTML = notes.map(n => '<li>' + n + '</li>').join('');
+  }
+
+  btnDownload.addEventListener('click', () => {
+    if (!state.outputBlob) return;
+    const url = URL.createObjectURL(state.outputBlob);
+    const a = document.createElement('a');
     a.href = url;
-    a.download = "updated_vessel_sheet.xlsx";
+    a.download = state.outputName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-  
-  // Auto-detect local ship photo (place ship-photo.jpg next to index.html)
-  (async function(){
-    const topBar = document.querySelector('.top-bar');
-    if (!topBar) return;
-    function exists(src){
-      return new Promise(resolve => {
-        const img = new Image();
-        img.onload = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.src = src;
-      });
-    }
-    try {
-      const hasPhoto = await exists('ship-photo.jpg');
-      if (hasPhoto) {
-        document.body.classList.add('has-hero');
-        document.body.style.backgroundImage = "url('ship-photo.jpg')";
-      }
-    } catch (e) {
-      // silent fail
-    }
-  })();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  });
 
+  btnReset.addEventListener('click', () => {
+    removeUpdateFile();
+    removeDbFile();
+    state.outputBlob = null;
+    hideBanner();
+    resultsCard.style.display = 'none';
+    uploadCard.style.display = 'block';
+    btnProcess.disabled = true;
+    setStep(1);
+  });
+
+  /* ======================================================================
+     LIBRARY LOAD CHECK
+     ====================================================================== */
+
+  window.addEventListener('load', () => {
+    if (typeof XLSX === 'undefined'){
+      showBanner('error', 'Could not load required library', 'The spreadsheet engine failed to load, possibly due to a network or content-blocking issue. Please check your connection and reload the page.');
+      btnProcess.disabled = true;
+      dzUpdate.style.pointerEvents = 'none';
+      dzDb.style.pointerEvents = 'none';
+    }
+  });
+
+})();
 </script>
-
 </body>
 </html>
