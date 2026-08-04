@@ -406,9 +406,6 @@
       vesselName: cleanStr(getRowValue(r, columnMap, 'vesselName', 0)),
       imo: cleanStr(getRowValue(r, columnMap, 'imo', 2)),
       handoverDate: cleanStr(getRowValue(r, columnMap, 'handoverDate', 4)),
-      handoverDateParsed: formatDate(getRowValue(r, columnMap, 'handoverDate', 4)),
-      priShopDate: formatDate(getRowValue(r, columnMap, 'priShopDate', 7)),
-      secShopDate: formatDate(getRowValue(r, columnMap, 'secShopDate', 8)),
       priShopRaw: priShopRaw,
       secShopRaw: secShopRaw
     };
@@ -502,32 +499,10 @@
         }
 
         const currentShopRaw = cleanStr(shopCol);
-        const currentShopValLower = currentShopRaw.toLowerCase();
-        const targetShopObj = match.priShopDate || match.secShopDate;
-        let targetShopStr = targetShopObj ? targetShopObj.formatted : null;
-        // Preserve '(shoptested)' or similar suffix from the DB raw value when present
-        const dbPriRaw = match.priShopRaw || '';
-        const dbSecRaw = match.secShopRaw || '';
-        const dbShopRaw = dbPriRaw || dbSecRaw || '';
-        if (targetShopStr && dbShopRaw) {
-          const parenIdx = dbShopRaw.indexOf('(');
-          let suffix = '';
-          if (parenIdx !== -1) {
-            suffix = ' ' + dbShopRaw.substring(parenIdx).trim();
-          } else if (/shoptested/i.test(dbShopRaw)) {
-            suffix = ' (shoptested)';
-          }
-          targetShopStr = targetShopStr + suffix;
-        }
-
-        // If the existing cell already contains 'shoptested', leave it as-is (user requested)
-        if (currentShopValLower.includes('shoptested')) {
-          stats.skipped++;
-        } else {
-          if (targetShopStr && currentShopRaw !== targetShopStr) {
-            setCellValue(sheet, sheetRowIndex, targetColumnMap.priShopDate !== undefined ? targetColumnMap.priShopDate : 7, targetShopStr);
-            stats.shop++;
-          }
+        const targetShopValue = match.priShopRaw || match.secShopRaw || '';
+        if (targetShopValue && currentShopRaw !== targetShopValue) {
+          setCellValue(sheet, sheetRowIndex, targetColumnMap.priShopDate !== undefined ? targetColumnMap.priShopDate : 7, targetShopValue);
+          stats.shop++;
         }
       });
 
