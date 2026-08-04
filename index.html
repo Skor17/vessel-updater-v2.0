@@ -209,18 +209,6 @@
     return row[fallbackIndex];
   }
 
-  function pickDateValue(row, columnMap, field, fallbackIndexes) {
-    const direct = getRowValue(row, columnMap, field, fallbackIndexes[0]);
-    const directDate = formatDate(direct);
-    if (directDate) return directDate;
-
-    for (const idx of fallbackIndexes.slice(1)) {
-      const parsed = formatDate(row[idx]);
-      if (parsed) return parsed;
-    }
-    return null;
-  }
-
   function dateFromExcelSerial(serial) {
     const excelEpoch = new Date(Date.UTC(1899, 11, 31));
     let days = Math.floor(serial);
@@ -326,18 +314,29 @@
 
     if (file.name.toLowerCase().endsWith('.csv')) {
       return new Promise((resolve, reject) => {
-        Papa.parse(file, {
-          skipEmptyLines: true,
-          complete: (results) => {
-            const rows = results.data || [];
-            const headers = rows[0] || [];
-            const columnMap = buildColumnMap(headers);
-            const dataRows = rows.slice(1);
-            dataRows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
-            resolve({ primaryDbMap, secondaryDbMap });
-          },
-          error: reject
-        });
+        file.text().then(text => {
+          const delimiter = (() => {
+            const candidates = [',', '\t', ';', '|'];
+            const sample = (text || '').split(/\r?\n/).slice(0, 20).join('\n');
+            const counts = candidates.map(delim => ({ delim, count: (sample.match(new RegExp(delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length }));
+            const best = counts.sort((a, b) => b.count - a.count)[0];
+            return best && best.count > 0 ? best.delim : '\t';
+          })();
+
+          Papa.parse(text, {
+            delimiter,
+            skipEmptyLines: true,
+            complete: (results) => {
+              const rows = results.data || [];
+              const headers = rows[0] || [];
+              const columnMap = buildColumnMap(headers);
+              const dataRows = rows.slice(1);
+              dataRows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
+              resolve({ primaryDbMap, secondaryDbMap });
+            },
+            error: reject
+          });
+        }).catch(reject);
       });
     }
 
@@ -406,7 +405,7 @@
     const record = {
       vesselName: cleanStr(getRowValue(r, columnMap, 'vesselName', 0)),
       imo: cleanStr(getRowValue(r, columnMap, 'imo', 2)),
-      handoverDate: pickDateValue(r, columnMap, 'handoverDate', [4, 7, 8]),
+      handoverDate: formatDate(getRowValue(r, columnMap, 'handoverDate', 4)),
       priShopDate: formatDate(getRowValue(r, columnMap, 'priShopDate', 7)),
       secShopDate: formatDate(getRowValue(r, columnMap, 'secShopDate', 8)),
       priShopRaw: priShopRaw,
