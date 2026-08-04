@@ -151,23 +151,76 @@
     return s;
   }
 
+  function dateFromExcelSerial(serial) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 31));
+    let days = Math.floor(serial);
+    if (days > 59) days -= 1;
+    excelEpoch.setUTCDate(excelEpoch.getUTCDate() + days);
+    const fraction = serial - Math.floor(serial);
+    return new Date(excelEpoch.getTime() + fraction * 24 * 60 * 60 * 1000);
+  }
+
   function formatDate(val) {
-    if (!val) return null;
-    let d = new Date(val);
-    if (isNaN(d.getTime())) {
-      // Try string parsing YYYY-MM-DD or DD/MM/YYYY
-      const match = String(val).match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
-      if (match) {
-        d = new Date(match[1], match[2] - 1, match[3]);
-      } else {
-        return null;
+    if (val === null || val === undefined || val === '') return null;
+
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return null;
+      return {
+        formatted: `${String(val.getDate()).padStart(2, '0')}/${String(val.getMonth() + 1).padStart(2, '0')}/${val.getFullYear()}`,
+        dateObj: val
+      };
+    }
+
+    if (typeof val === 'number') {
+      const d = dateFromExcelSerial(val);
+      if (!isNaN(d.getTime())) {
+        return {
+          formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
+          dateObj: d
+        };
+      }
+      return null;
+    }
+
+    const str = String(val).trim();
+    if (!str) return null;
+
+    if (/^\d+(\.\d+)?$/.test(str)) {
+      const serial = Number(str);
+      if (serial > 59 && serial < 60000) {
+        const d = dateFromExcelSerial(serial);
+        if (!isNaN(d.getTime())) {
+          return {
+            formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
+            dateObj: d
+          };
+        }
       }
     }
+
+    let d = new Date(str);
+    if (isNaN(d.getTime())) {
+      const match = str.match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+      if (match) {
+        d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      } else {
+        const alt = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+        if (alt) {
+          const first = Number(alt[1]);
+          const second = Number(alt[2]);
+          const year = Number(alt[3]);
+          d = first > 12
+            ? new Date(year, second - 1, first)
+            : new Date(year, first - 1, second);
+        }
+      }
+    }
+
     if (isNaN(d.getTime())) return null;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return { formatted: `${day}/${month}/${year}`, dateObj: d };
+    return {
+      formatted: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
+      dateObj: d
+    };
   }
 
   // Convert various buffer types to ArrayBuffer for XLSX.write consumption
@@ -304,12 +357,11 @@
     try {
       const { primaryDbMap, secondaryDbMap } = await parseDatabase(dbEl.files[0]);
 
-      // Processing stats and cutoff date
+      // Processing stats
       let stats = {
         total: 0, matched: 0, unmatched: 0,
         vessel: 0, imo: 0, handover: 0, shop: 0, skipped: 0
       };
-      const cutoffDate = new Date(2025, 0, 1);
 
       // Use SheetJS (XLSX) to read and update the target workbook to avoid ExcelJS XML parser crashes
       // Sanitize target XLSX to remove problematic filter nodes, then read
@@ -362,7 +414,7 @@
           stats.imo++;
         }
 
-        if (match.handoverDate && match.handoverDate.dateObj >= cutoffDate) {
+        if (match.handoverDate && match.handoverDate.dateObj) {
           if (cleanStr(row[4]) !== match.handoverDate.formatted) {
             setCellValue(sheet, sheetRowIndex, 4, match.handoverDate.formatted);
             stats.handover++;
