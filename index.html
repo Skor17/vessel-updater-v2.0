@@ -151,6 +151,76 @@
     return s;
   }
 
+  function normalizeHeader(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
+  function findHeaderIndex(headers, patterns, occurrence = 0) {
+    const normalizedHeaders = headers.map(h => normalizeHeader(h));
+    let matchCount = 0;
+
+    for (let index = 0; index < normalizedHeaders.length; index++) {
+      const header = normalizedHeaders[index];
+      const matchesPattern = patterns.some(pattern => {
+        const target = normalizeHeader(pattern);
+        return header === target || header.includes(target) || target.includes(header);
+      });
+
+      if (matchesPattern) {
+        if (matchCount === occurrence) return index;
+        matchCount += 1;
+      }
+    }
+
+    return -1;
+  }
+
+  function buildColumnMap(headers) {
+    const defaults = {
+      vesselName: 0,
+      imo: 2,
+      primaryDb: 5,
+      secondaryDb: 6,
+      handoverDate: 4,
+      priShopDate: 7,
+      secShopDate: 8
+    };
+
+    const map = { ...defaults };
+    if (!Array.isArray(headers)) return map;
+
+    const setField = (field, patterns, occurrence = 0) => {
+      const idx = findHeaderIndex(headers, patterns, occurrence);
+      if (idx !== -1) map[field] = idx;
+    };
+
+    setField('vesselName', ['vessel', 'vesselname', 'shipname', 'ship']);
+    setField('imo', ['imo', 'imo number']);
+    setField('primaryDb', ['dbnumber', 'dbnumber1', 'db1', 'db01', 'dbone', 'primarydb', 'pridb'], 0);
+    setField('secondaryDb', ['dbnumber', 'dbnumber2', 'db2', 'db02', 'dbtwo', 'secondarydb', 'secdb'], 1);
+    setField('handoverDate', ['handoverdate', 'handover'], 0);
+    setField('priShopDate', ['shoptest', 'shopdate1', 'prishopdate', 'prishop', 'prishoptest'], 0);
+    setField('secShopDate', ['shoptest', 'shopdate2', 'secshopdate', 'secshop', 'secshoptest'], 1);
+    return map;
+  }
+
+  function getRowValue(row, columnMap, field, fallbackIndex) {
+    if (columnMap && columnMap[field] !== undefined) return row[columnMap[field]];
+    return row[fallbackIndex];
+  }
+
+  function pickDateValue(row, columnMap, field, fallbackIndexes) {
+    const direct = getRowValue(row, columnMap, field, fallbackIndexes[0]);
+    const directDate = formatDate(direct);
+    if (directDate) return directDate;
+
+    for (const idx of fallbackIndexes.slice(1)) {
+      const parsed = formatDate(row[idx]);
+      if (parsed) return parsed;
+    }
+    return null;
+  }
+
   function dateFromExcelSerial(serial) {
     const excelEpoch = new Date(Date.UTC(1899, 11, 31));
     let days = Math.floor(serial);
@@ -259,8 +329,11 @@
         Papa.parse(file, {
           skipEmptyLines: true,
           complete: (results) => {
-            const rows = results.data.slice(1);
-            rows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap));
+            const rows = results.data || [];
+            const headers = rows[0] || [];
+            const columnMap = buildColumnMap(headers);
+            const dataRows = rows.slice(1);
+            dataRows.forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
             resolve({ primaryDbMap, secondaryDbMap });
           },
           error: reject
@@ -286,8 +359,10 @@
     const workbook = XLSX.read(ab, { type: 'array', cellStyles: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+    const headers = rows[0] || [];
+    const columnMap = buildColumnMap(headers);
 
-    rows.slice(1).forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap));
+    rows.slice(1).forEach(r => extractDbRow(r, primaryDbMap, secondaryDbMap, columnMap));
     return { primaryDbMap, secondaryDbMap };
   }
 
@@ -323,17 +398,17 @@
     }
   }
 
-  function extractDbRow(r, priMap, secMap) {
-    const priDb = cleanStr(r[5]);
-    const secDb = cleanStr(r[6]);
-    const priShopRaw = cleanStr(r[7]);
-    const secShopRaw = cleanStr(r[8]);
+  function extractDbRow(r, priMap, secMap, columnMap) {
+    const priDb = cleanStr(getRowValue(r, columnMap, 'primaryDb', 5));
+    const secDb = cleanStr(getRowValue(r, columnMap, 'secondaryDb', 6));
+    const priShopRaw = cleanStr(getRowValue(r, columnMap, 'priShopDate', 7));
+    const secShopRaw = cleanStr(getRowValue(r, columnMap, 'secShopDate', 8));
     const record = {
-      vesselName: cleanStr(r[0]),
-      imo: cleanStr(r[2]),
-      handoverDate: formatDate(r[4]),
-      priShopDate: formatDate(r[7]),
-      secShopDate: formatDate(r[8]),
+      vesselName: cleanStr(getRowValue(r, columnMap, 'vesselName', 0)),
+      imo: cleanStr(getRowValue(r, columnMap, 'imo', 2)),
+      handoverDate: pickDateValue(r, columnMap, 'handoverDate', [4, 7, 8]),
+      priShopDate: formatDate(getRowValue(r, columnMap, 'priShopDate', 7)),
+      secShopDate: formatDate(getRowValue(r, columnMap, 'secShopDate', 8)),
       priShopRaw: priShopRaw,
       secShopRaw: secShopRaw
     };
@@ -380,15 +455,16 @@
       const sheetName = targetWorkbook.SheetNames[0];
       const sheet = targetWorkbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+      const hasHeaders = rows.length > 0 && rows[0].some(v => cleanStr(v) !== '');
+      const targetColumnMap = hasHeaders ? buildColumnMap(rows[0]) : {};
+      const dataRows = hasHeaders ? rows.slice(1) : rows;
 
-      // stats and cutoffDate are declared above; just use them here (they already exist in outer scope)
-
-      rows.slice(1).forEach((row, index) => {
-        const sheetRowIndex = index + 1; // zero-based for SheetJS encode_cell
+      dataRows.forEach((row, index) => {
+        const sheetRowIndex = index + (hasHeaders ? 1 : 0); // zero-based for SheetJS encode_cell
         stats.total++;
 
-        const priDbVal = cleanStr(row[5]);
-        const secDbVal = cleanStr(row[6]);
+        const priDbVal = cleanStr(getRowValue(row, targetColumnMap, 'primaryDb', 5));
+        const secDbVal = cleanStr(getRowValue(row, targetColumnMap, 'secondaryDb', 6));
 
         let match = null;
         if (priDbVal && primaryDbMap.has(priDbVal)) {
@@ -404,24 +480,29 @@
 
         stats.matched++;
 
-        if (match.vesselName && cleanStr(row[0]) !== match.vesselName) {
-          setCellValue(sheet, sheetRowIndex, 0, match.vesselName);
+        const vesselCol = getRowValue(row, targetColumnMap, 'vesselName', 0);
+        const imoCol = getRowValue(row, targetColumnMap, 'imo', 2);
+        const handoverCol = getRowValue(row, targetColumnMap, 'handoverDate', 4);
+        const shopCol = getRowValue(row, targetColumnMap, 'priShopDate', 7);
+
+        if (match.vesselName && cleanStr(vesselCol) !== match.vesselName) {
+          setCellValue(sheet, sheetRowIndex, targetColumnMap.vesselName !== undefined ? targetColumnMap.vesselName : 0, match.vesselName);
           stats.vessel++;
         }
 
-        if (match.imo && cleanStr(row[2]) !== match.imo) {
-          setCellValue(sheet, sheetRowIndex, 2, match.imo);
+        if (match.imo && cleanStr(imoCol) !== match.imo) {
+          setCellValue(sheet, sheetRowIndex, targetColumnMap.imo !== undefined ? targetColumnMap.imo : 2, match.imo);
           stats.imo++;
         }
 
         if (match.handoverDate && match.handoverDate.dateObj) {
-          if (cleanStr(row[4]) !== match.handoverDate.formatted) {
-            setCellValue(sheet, sheetRowIndex, 4, match.handoverDate.formatted);
+          if (cleanStr(handoverCol) !== match.handoverDate.formatted) {
+            setCellValue(sheet, sheetRowIndex, targetColumnMap.handoverDate !== undefined ? targetColumnMap.handoverDate : 4, match.handoverDate.formatted);
             stats.handover++;
           }
         }
 
-        const currentShopRaw = cleanStr(row[7]);
+        const currentShopRaw = cleanStr(shopCol);
         const currentShopValLower = currentShopRaw.toLowerCase();
         const targetShopObj = match.priShopDate || match.secShopDate;
         let targetShopStr = targetShopObj ? targetShopObj.formatted : null;
@@ -445,7 +526,7 @@
           stats.skipped++;
         } else {
           if (targetShopStr && currentShopRaw !== targetShopStr) {
-            setCellValue(sheet, sheetRowIndex, 7, targetShopStr);
+            setCellValue(sheet, sheetRowIndex, targetColumnMap.priShopDate !== undefined ? targetColumnMap.priShopDate : 7, targetShopStr);
             stats.shop++;
           }
         }
