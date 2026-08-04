@@ -405,7 +405,8 @@
     const record = {
       vesselName: cleanStr(getRowValue(r, columnMap, 'vesselName', 0)),
       imo: cleanStr(getRowValue(r, columnMap, 'imo', 2)),
-      handoverDate: formatDate(getRowValue(r, columnMap, 'handoverDate', 4)),
+      handoverDate: cleanStr(getRowValue(r, columnMap, 'handoverDate', 4)),
+      handoverDateParsed: formatDate(getRowValue(r, columnMap, 'handoverDate', 4)),
       priShopDate: formatDate(getRowValue(r, columnMap, 'priShopDate', 7)),
       secShopDate: formatDate(getRowValue(r, columnMap, 'secShopDate', 8)),
       priShopRaw: priShopRaw,
@@ -494,11 +495,10 @@
           stats.imo++;
         }
 
-        if (match.handoverDate && match.handoverDate.dateObj) {
-          if (cleanStr(handoverCol) !== match.handoverDate.formatted) {
-            setCellValue(sheet, sheetRowIndex, targetColumnMap.handoverDate !== undefined ? targetColumnMap.handoverDate : 4, match.handoverDate.formatted);
-            stats.handover++;
-          }
+        const targetHandoverValue = match.handoverDate || '';
+        if (targetHandoverValue && cleanStr(handoverCol) !== targetHandoverValue) {
+          setCellValue(sheet, sheetRowIndex, targetColumnMap.handoverDate !== undefined ? targetColumnMap.handoverDate : 4, targetHandoverValue);
+          stats.handover++;
         }
 
         const currentShopRaw = cleanStr(shopCol);
