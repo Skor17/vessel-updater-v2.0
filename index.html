@@ -365,7 +365,7 @@ header.app-header p{
 
     <div class="upload-grid">
       <div>
-        <p class="dz-label">Submit WiDE Dashboard Excel</p>
+        <p class="dz-label">Upload WiDE Dashboard Excel</p>
         <div class="dropzone" id="dzUpdate" tabindex="0" role="button" aria-label="Upload the WiDE dashboard Excel file">
           <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
           <p class="dz-title">Drag &amp; drop, or click to browse</p>
@@ -375,7 +375,7 @@ header.app-header p{
       </div>
 
       <div>
-        <p class="dz-label">Vessel database</p>
+        <p class="dz-label">Upload Vessel database (RFC CSV)</p>
         <div class="dropzone" id="dzDb" tabindex="0" role="button" aria-label="Upload the vessel database file">
           <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
           <p class="dz-title">Drag &amp; drop, or click to browse</p>
@@ -448,6 +448,13 @@ header.app-header p{
       <div class="stat neutral"><div class="stat-num" id="statShoptest">0</div><div class="stat-label">Shop test dates</div></div>
     </div>
 
+    <div class="stat-grid">
+      <div class="stat neutral"><div class="stat-num" id="statHull">0</div><div class="stat-label">Hull numbers</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statOwner">0</div><div class="stat-label">Owners</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statLicensee">0</div><div class="stat-label">Licensees</div></div>
+      <div class="stat neutral"><div class="stat-num" id="statVesselType">0</div><div class="stat-label">Vessel types</div></div>
+    </div>
+
     <div class="subgrid-title">New vessels</div>
     <div class="stat-grid" style="grid-template-columns:1fr;">
       <div class="stat good"><div class="stat-num" id="statNewVessels">0</div><div class="stat-label">Added as new rows at the bottom</div></div>
@@ -504,6 +511,12 @@ header.app-header p{
 
   function formatDMY(d){
     return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+
+  // ISO date (YYYY-MM-DD), matching the convention already used for
+  // Shop Test annotations in the existing workbook, e.g. "2015-05-14".
+  function formatISO(d){
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
   }
 
   // Parses a flexible set of date representations found in real workbooks:
@@ -832,6 +845,37 @@ header.app-header p{
     ws['!ref'] = XLSX.utils.encode_range(range);
   }
 
+  // Writes a real Date value (type 'd') into ws[r,c], preserving the
+  // cell's existing style (and therefore its existing display format,
+  // e.g. "mmmm d, yyyy") instead of collapsing it to a plain text string.
+  // This is what keeps Handover Date cells looking/behaving like dates
+  // (sortable, filterable, no stray "00:00:00") after an update.
+  function setCellDateValue(ws, r, c, dateObj){
+    const addr = XLSX.utils.encode_cell({ r, c });
+    let cell = ws[addr];
+    if (!cell){
+      cell = {};
+      ws[addr] = cell;
+    }
+    delete cell.f;
+    delete cell.z;
+    cell.t = 'd';
+    cell.v = dateObj;
+    delete cell.w;
+    const range = sheetRowBounds(ws) || { s:{r:0,c:0}, e:{r:0,c:0} };
+    range.s.r = Math.min(range.s.r, r); range.e.r = Math.max(range.e.r, r);
+    range.s.c = Math.min(range.s.c, c); range.e.c = Math.max(range.e.c, c);
+    ws['!ref'] = XLSX.utils.encode_range(range);
+  }
+
+  // Writes a text value into a cell, choosing 'n' for pure numeric strings
+  // and 's' otherwise. Shared by all the simple text-field update blocks
+  // below (Hull Number, Owner, Licensee, Vessel Type, IMO, DB Numbers).
+  function setTextOrNumberValue(ws, r, c, raw){
+    if (/^\d+$/.test(raw)) setCellValue(ws, r, c, parseInt(raw, 10), 'n');
+    else setCellValue(ws, r, c, raw, 's');
+  }
+
   // Column positions shared by both files (A..J), used throughout.
   const COL = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9 };
 
@@ -932,6 +976,8 @@ header.app-header p{
     const summary = {
       total: 0, matched: 0, unmatched: 0,
       vesselUpdated: 0, imoUpdated: 0, handoverUpdated: 0, shopTestUpdated: 0,
+      hullUpdated: 0, ownerUpdated: 0, licenseeUpdated: 0, vesselTypeUpdated: 0,
+      dbNumberFilled: 0,
       skippedShoptested: 0, newVesselsAdded: 0
     };
 
@@ -942,8 +988,10 @@ header.app-header p{
     for (let r = firstDataRow; r <= lastRow; r++){
       summary.total++;
 
-      const colA = range.s.c + COL.A, colC = range.s.c + COL.C, colE = range.s.c + COL.E,
-            colF = range.s.c + COL.F, colG = range.s.c + COL.G, colH = range.s.c + COL.H;
+      const colA = range.s.c + COL.A, colB = range.s.c + COL.B, colC = range.s.c + COL.C,
+            colD = range.s.c + COL.D, colE = range.s.c + COL.E,
+            colF = range.s.c + COL.F, colG = range.s.c + COL.G, colH = range.s.c + COL.H,
+            colI = range.s.c + COL.I, colJ = range.s.c + COL.J;
 
       const primaryId = normalizeId(getCellValue(updateWs, r, colF));
       const secondaryId = normalizeId(getCellValue(updateWs, r, colG));
@@ -969,43 +1017,105 @@ header.app-header p{
           }
         }
 
+        // --- Hull Number (col B) ---
+        if (!isEmptyVal(rec.hullNumber)){
+          const raw = String(rec.hullNumber).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colB));
+          if (raw !== curVal){
+            setTextOrNumberValue(updateWs, r, colB, raw);
+            summary.hullUpdated++;
+          }
+        }
+
         // --- IMO Number (col C) ---
         if (!isEmptyVal(rec.imoNumber)){
           const raw = String(rec.imoNumber).trim();
           const curVal = cellDisplayString(getCellValue(updateWs, r, colC));
           if (raw !== curVal){
-            if (/^\d+$/.test(raw)) setCellValue(updateWs, r, colC, parseInt(raw, 10), 'n');
-            else setCellValue(updateWs, r, colC, raw, 's');
+            setTextOrNumberValue(updateWs, r, colC, raw);
             summary.imoUpdated++;
           }
         }
 
-        // --- Handover Date (col E) — only if DB date >= 1 Jan 2025 ---
+        // --- Owner (col D) ---
+        if (!isEmptyVal(rec.owner)){
+          const newVal = String(rec.owner).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colD));
+          if (newVal !== curVal){
+            setCellValue(updateWs, r, colD, newVal, 's');
+            summary.ownerUpdated++;
+          }
+        }
+
+        // --- Handover Date (col E) — only if DB date >= 1 Jan 2025.
+        // Written as a real date value so the cell keeps its existing
+        // date formatting instead of turning into plain text.
         if (!isEmptyVal(rec.handoverDate)){
           const parsed = parseFlexibleDate(rec.handoverDate);
           if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
-            const newVal = formatDMY(parsed);
-            const curVal = cellDisplayString(getCellValue(updateWs, r, colE));
-            if (newVal !== curVal){
-              setCellValue(updateWs, r, colE, newVal, 's');
+            const curRaw = getCellValue(updateWs, r, colE);
+            const curParsed = parseFlexibleDate(curRaw);
+            const changed = !curParsed || curParsed.getTime() !== parsed.getTime();
+            if (changed){
+              setCellDateValue(updateWs, r, colE, parsed);
               summary.handoverUpdated++;
             }
           }
         }
 
-        // --- Shop Test Date (col H) — single column now ---
+        // --- Primary / Secondary DB Number (cols F/G) — only fill in
+        // when the workbook is missing an ID the database actually has;
+        // never overwrite an existing identifier.
+        if (isEmptyVal(getCellValue(updateWs, r, colF)) && !isEmptyVal(rec.primaryId)){
+          setTextOrNumberValue(updateWs, r, colF, String(rec.primaryId).trim());
+          summary.dbNumberFilled++;
+        }
+        if (isEmptyVal(getCellValue(updateWs, r, colG)) && !isEmptyVal(rec.secondaryId)){
+          setTextOrNumberValue(updateWs, r, colG, String(rec.secondaryId).trim());
+          summary.dbNumberFilled++;
+        }
+
+        // --- Shop Test Date (col H) ---
+        // Always kept in sync with the database, formatted to match the
+        // existing convention in this workbook: "YYYY-MM-DD (shoptested)".
+        // A row is only left untouched if it's already marked shoptested
+        // AND already carries the same date the database has now.
         const curShopRaw = getCellValue(updateWs, r, colH);
         const curShopStr = cellDisplayString(curShopRaw);
-        if (curShopStr.toLowerCase().includes('shoptested')){
-          summary.skippedShoptested++;
-        } else if (!isEmptyVal(rec.shopTestDate)){
+        const alreadyShoptested = curShopStr.toLowerCase().includes('shoptested');
+        if (!isEmptyVal(rec.shopTestDate)){
           const chosen = parseFlexibleDate(rec.shopTestDate);
           if (chosen){
-            const newVal = formatDMY(chosen);
-            if (newVal !== curShopStr){
-              setCellValue(updateWs, r, colH, newVal, 's');
+            const curParsed = parseFlexibleDate(curShopRaw); // strips any "(...)" annotation
+            const sameDate = curParsed && curParsed.getTime() === chosen.getTime();
+            if (!(alreadyShoptested && sameDate)){
+              setCellValue(updateWs, r, colH, formatISO(chosen) + ' (shoptested)', 's');
               summary.shopTestUpdated++;
+            } else {
+              summary.skippedShoptested++;
             }
+          }
+        } else if (alreadyShoptested){
+          summary.skippedShoptested++;
+        }
+
+        // --- Licensee (col I) ---
+        if (!isEmptyVal(rec.licensee)){
+          const newVal = String(rec.licensee).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colI));
+          if (newVal !== curVal){
+            setCellValue(updateWs, r, colI, newVal, 's');
+            summary.licenseeUpdated++;
+          }
+        }
+
+        // --- Vessel Type (col J) ---
+        if (!isEmptyVal(rec.vesselType)){
+          const newVal = String(rec.vesselType).trim();
+          const curVal = cellDisplayString(getCellValue(updateWs, r, colJ));
+          if (newVal !== curVal){
+            setCellValue(updateWs, r, colJ, newVal, 's');
+            summary.vesselTypeUpdated++;
           }
         }
       }
@@ -1044,7 +1154,7 @@ header.app-header p{
       if (!isEmptyVal(rec.handoverDate)){
         const parsed = parseFlexibleDate(rec.handoverDate);
         if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
-          setCellValue(updateWs, nextRow, range.s.c + COL.E, formatDMY(parsed), 's');
+          setCellDateValue(updateWs, nextRow, range.s.c + COL.E, parsed);
         }
       }
 
@@ -1053,7 +1163,7 @@ header.app-header p{
 
       if (!isEmptyVal(rec.shopTestDate)){
         const chosen = parseFlexibleDate(rec.shopTestDate);
-        if (chosen) setCellValue(updateWs, nextRow, range.s.c + COL.H, formatDMY(chosen), 's');
+        if (chosen) setCellValue(updateWs, nextRow, range.s.c + COL.H, formatISO(chosen) + ' (shoptested)', 's');
       }
 
       writeNewRowField(updateWs, nextRow, range.s.c + COL.I, rec.licensee);
@@ -1121,6 +1231,10 @@ header.app-header p{
     el('statImo').textContent = summary.imoUpdated;
     el('statHandover').textContent = summary.handoverUpdated;
     el('statShoptest').textContent = summary.shopTestUpdated;
+    el('statHull').textContent = summary.hullUpdated;
+    el('statOwner').textContent = summary.ownerUpdated;
+    el('statLicensee').textContent = summary.licenseeUpdated;
+    el('statVesselType').textContent = summary.vesselTypeUpdated;
     el('statNewVessels').textContent = summary.newVesselsAdded;
 
     el('resultsSub').textContent = 'The dashboard workbook was checked row by row against ' + dbIndex.records.length + ' database records' +
@@ -1135,6 +1249,9 @@ header.app-header p{
     }
     if (summary.unmatched > 0){
       notes.push(summary.unmatched + ' row' + (summary.unmatched===1?'':'s') + ' had no matching DB Number in the database and were left completely unchanged.');
+    }
+    if (summary.dbNumberFilled > 0){
+      notes.push(summary.dbNumberFilled + ' missing DB Number cell' + (summary.dbNumberFilled===1?'':'s') + ' (primary or secondary) were filled in from the database.');
     }
     const notesList = el('notesList');
     notesList.innerHTML = notes.map(n => '<li>' + n + '</li>').join('');
