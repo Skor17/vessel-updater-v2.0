@@ -209,6 +209,14 @@
     return row[fallbackIndex];
   }
 
+  function getRawTextValue(val) {
+    if (val === null || val === undefined) return '';
+    if (val instanceof Date) {
+      return `${String(val.getDate()).padStart(2, '0')}/${String(val.getMonth() + 1).padStart(2, '0')}/${val.getFullYear()}`;
+    }
+    return String(val);
+  }
+
   function dateFromExcelSerial(serial) {
     const excelEpoch = new Date(Date.UTC(1899, 11, 31));
     let days = Math.floor(serial);
@@ -293,7 +301,8 @@
   // Set a cell value in a SheetJS sheet (zero-based row/col)
   function setCellValue(sheet, rowIndex, colIndex, value) {
     const cellRef = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex });
-    sheet[cellRef] = { t: typeof value === 'number' ? 'n' : 's', v: value };
+    const textValue = getRawTextValue(value);
+    sheet[cellRef] = { t: 's', v: textValue, w: textValue };
 
     if (!sheet['!ref']) {
       sheet['!ref'] = cellRef;
@@ -357,7 +366,7 @@
 
     const workbook = XLSX.read(ab, { type: 'array', cellStyles: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '', raw: false });
     const headers = rows[0] || [];
     const columnMap = buildColumnMap(headers);
 
@@ -400,12 +409,12 @@
   function extractDbRow(r, priMap, secMap, columnMap) {
     const priDb = cleanStr(getRowValue(r, columnMap, 'primaryDb', 5));
     const secDb = cleanStr(getRowValue(r, columnMap, 'secondaryDb', 6));
-    const priShopRaw = cleanStr(getRowValue(r, columnMap, 'priShopDate', 7));
-    const secShopRaw = cleanStr(getRowValue(r, columnMap, 'secShopDate', 8));
+    const priShopRaw = getRawTextValue(getRowValue(r, columnMap, 'priShopDate', 7));
+    const secShopRaw = getRawTextValue(getRowValue(r, columnMap, 'secShopDate', 8));
     const record = {
-      vesselName: cleanStr(getRowValue(r, columnMap, 'vesselName', 0)),
-      imo: cleanStr(getRowValue(r, columnMap, 'imo', 2)),
-      handoverDate: cleanStr(getRowValue(r, columnMap, 'handoverDate', 4)),
+      vesselName: getRawTextValue(getRowValue(r, columnMap, 'vesselName', 0)),
+      imo: getRawTextValue(getRowValue(r, columnMap, 'imo', 2)),
+      handoverDate: getRawTextValue(getRowValue(r, columnMap, 'handoverDate', 4)),
       priShopRaw: priShopRaw,
       secShopRaw: secShopRaw
     };
@@ -451,7 +460,7 @@
       const targetWorkbook = XLSX.read(targetBuffer, { type: 'array', cellStyles: true });
       const sheetName = targetWorkbook.SheetNames[0];
       const sheet = targetWorkbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '', raw: false });
       const hasHeaders = rows.length > 0 && rows[0].some(v => cleanStr(v) !== '');
       const targetColumnMap = hasHeaders ? buildColumnMap(rows[0]) : {};
       const dataRows = hasHeaders ? rows.slice(1) : rows;
@@ -493,12 +502,12 @@
         }
 
         const targetHandoverValue = match.handoverDate || '';
-        if (targetHandoverValue && cleanStr(handoverCol) !== targetHandoverValue) {
+        if (targetHandoverValue && getRawTextValue(handoverCol) !== targetHandoverValue) {
           setCellValue(sheet, sheetRowIndex, targetColumnMap.handoverDate !== undefined ? targetColumnMap.handoverDate : 4, targetHandoverValue);
           stats.handover++;
         }
 
-        const currentShopRaw = cleanStr(shopCol);
+        const currentShopRaw = getRawTextValue(shopCol);
         const targetShopValue = match.priShopRaw || match.secShopRaw || '';
         if (targetShopValue && currentShopRaw !== targetShopValue) {
           setCellValue(sheet, sheetRowIndex, targetColumnMap.priShopDate !== undefined ? targetColumnMap.priShopDate : 7, targetShopValue);
