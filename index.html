@@ -449,7 +449,6 @@ header.app-header p{
     </div>
 
     <div class="stat-grid">
-      <div class="stat neutral"><div class="stat-num" id="statHull">0</div><div class="stat-label">Hull numbers</div></div>
       <div class="stat neutral"><div class="stat-num" id="statOwner">0</div><div class="stat-label">Owners</div></div>
       <div class="stat neutral"><div class="stat-num" id="statLicensee">0</div><div class="stat-label">Licensees</div></div>
       <div class="stat neutral"><div class="stat-num" id="statVesselType">0</div><div class="stat-label">Vessel types</div></div>
@@ -532,7 +531,12 @@ header.app-header p{
 
     if (val instanceof Date){
       if (isNaN(val.getTime())) return null;
-      return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+      // SheetJS (with cellDates:true) builds date-only cells from UTC
+      // components. Reading them back with *local* getters can roll the
+      // date back by one day in any timezone behind UTC (e.g. a 1 Jan
+      // date turning into 31 Dec). Use the UTC getters to recover the
+      // calendar date actually stored in the workbook.
+      return new Date(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate());
     }
 
     if (typeof val === 'number'){
@@ -573,11 +577,33 @@ header.app-header p{
     return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === day;
   }
 
+  // Extracts the trailing parenthetical annotation word(s) from a database
+  // Shop Test value, e.g. "2027-09-15 (estimated)" -> "estimated". Only
+  // string values carry annotations; numbers and Date objects never do.
+  // This lets the workbook mirror whatever word the database is currently
+  // using ("estimated", "planned", "shoptested", ...) instead of a
+  // hardcoded label.
+  function extractAnnotation(val){
+    if (val === null || val === undefined) return '';
+    if (val instanceof Date || typeof val === 'number') return '';
+    const s = String(val).trim();
+    const m = s.match(/\(([^)]*)\)\s*$/);
+    return m ? m[1].trim() : '';
+  }
+
+  // Normalizes a vessel name for last-resort duplicate matching (case/
+  // whitespace-insensitive). Only used as a fallback when a database
+  // record has no DB Number and no IMO Number to key off of.
+  function normalizeName(val){
+    if (isEmptyVal(val)) return '';
+    return String(val).replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
   // Best-effort plain-text rendering of a cell's current value, used for
   // change-detection and for the "already shoptested" check.
   function cellDisplayString(val){
     if (val === null || val === undefined) return '';
-    if (val instanceof Date) return formatDMY(val);
+    if (val instanceof Date) return formatDMY(new Date(val.getUTCFullYear(), val.getUTCMonth(), val.getUTCDate()));
     return String(val).replace(/\u00a0/g, ' ').trim();
   }
 
@@ -698,7 +724,18 @@ header.app-header p{
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target.result);
-          const wb = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true, cellNF: false, cellFormula: true, WTF: false });
+          // NOTE: cellDates is intentionally left off (default: false).
+          // With it on, SheetJS pre-converts date cells into JS Date
+          // objects, and reading those back out is inherently ambiguous
+          // across timezones (there is no reliable way to know whether
+          // the library built them from UTC or local components), which
+          // is what caused Handover Dates to shift by a day. Leaving
+          // cellDates off means date cells arrive as plain Excel serial
+          // numbers instead — converting a serial number to a calendar
+          // date is pure arithmetic with no timezone involved at all,
+          // so it can never be off by a day. parseFlexibleDate() already
+          // handles numeric serials via XLSX.SSF.parse_date_code.
+          const wb = XLSX.read(data, { type: 'array', cellStyles: true, cellNF: false, cellFormula: true, WTF: false });
           if (!wb.SheetNames || wb.SheetNames.length === 0){
             reject(new Error('No worksheets were found in this file.'));
             return;
@@ -845,29 +882,6 @@ header.app-header p{
     ws['!ref'] = XLSX.utils.encode_range(range);
   }
 
-  // Writes a real Date value (type 'd') into ws[r,c], preserving the
-  // cell's existing style (and therefore its existing display format,
-  // e.g. "mmmm d, yyyy") instead of collapsing it to a plain text string.
-  // This is what keeps Handover Date cells looking/behaving like dates
-  // (sortable, filterable, no stray "00:00:00") after an update.
-  function setCellDateValue(ws, r, c, dateObj){
-    const addr = XLSX.utils.encode_cell({ r, c });
-    let cell = ws[addr];
-    if (!cell){
-      cell = {};
-      ws[addr] = cell;
-    }
-    delete cell.f;
-    delete cell.z;
-    cell.t = 'd';
-    cell.v = dateObj;
-    delete cell.w;
-    const range = sheetRowBounds(ws) || { s:{r:0,c:0}, e:{r:0,c:0} };
-    range.s.r = Math.min(range.s.r, r); range.e.r = Math.max(range.e.r, r);
-    range.s.c = Math.min(range.s.c, c); range.e.c = Math.max(range.e.c, c);
-    ws['!ref'] = XLSX.utils.encode_range(range);
-  }
-
   // Writes a text value into a cell, choosing 'n' for pure numeric strings
   // and 's' otherwise. Shared by all the simple text-field update blocks
   // below (Hull Number, Owner, Licensee, Vessel Type, IMO, DB Numbers).
@@ -956,6 +970,174 @@ header.app-header p{
     return last;
   }
 
+  // Builds normalized-IMO -> row and normalized-name -> row lookups over
+  // the existing workbook rows. Used only as a fallback duplicate check
+  // for database records that carry neither a primary nor secondary DB
+  // Number (so they can't be matched/re-matched by ID).
+  function buildFallbackIndices(ws, range, firstDataRow, lastRow){
+    const imoMap = new Map();
+    const nameMap = new Map();
+    for (let r = firstDataRow; r <= lastRow; r++){
+      const imoKey = normalizeId(getCellValue(ws, r, range.s.c + COL.C));
+      if (imoKey && !imoMap.has(imoKey)) imoMap.set(imoKey, r);
+      const nameKey = normalizeName(getCellValue(ws, r, range.s.c + COL.A));
+      if (nameKey && !nameMap.has(nameKey)) nameMap.set(nameKey, r);
+    }
+    return { imoMap, nameMap };
+  }
+
+  // Applies one database record's fields onto an existing workbook row,
+  // following the "only overwrite when the DB actually has a value, and
+  // only when it's actually different" rule for every column. Shared by
+  // both the ID-matched update pass and the IMO/name fallback pass used
+  // for DB records that have no DB Number at all.
+  function applyRecordToRow(updateWs, colOffset, r, rec, summary, fillDbNumbers){
+    const colA = colOffset + COL.A, colC = colOffset + COL.C,
+          colD = colOffset + COL.D,
+          colF = colOffset + COL.F, colG = colOffset + COL.G, colH = colOffset + COL.H,
+          colI = colOffset + COL.I, colJ = colOffset + COL.J;
+
+    // --- Vessel Name (col A) ---
+    if (!isEmptyVal(rec.vesselName)){
+      const newVal = String(rec.vesselName).trim();
+      const curVal = cellDisplayString(getCellValue(updateWs, r, colA));
+      if (newVal !== curVal){
+        setCellValue(updateWs, r, colA, newVal, 's');
+        summary.vesselUpdated++;
+      }
+    }
+
+    // --- Hull Number (col B): intentionally left untouched. ---
+
+    // --- IMO Number (col C) ---
+    if (!isEmptyVal(rec.imoNumber)){
+      const raw = String(rec.imoNumber).trim();
+      const curVal = cellDisplayString(getCellValue(updateWs, r, colC));
+      if (raw !== curVal){
+        setTextOrNumberValue(updateWs, r, colC, raw);
+        summary.imoUpdated++;
+      }
+    }
+
+    // --- Owner (col D) ---
+    if (!isEmptyVal(rec.owner)){
+      const newVal = String(rec.owner).trim();
+      const curVal = cellDisplayString(getCellValue(updateWs, r, colD));
+      if (newVal !== curVal){
+        setCellValue(updateWs, r, colD, newVal, 's');
+        summary.ownerUpdated++;
+      }
+    }
+
+    // --- Handover Date (col E) is intentionally NOT handled here — see
+    // standardizeHandoverDate(), called separately for every row (matched
+    // or not) so the whole column ends up in one consistent text format.
+
+    // --- Primary / Secondary DB Number (cols F/G) — only fill in when
+    // the workbook is missing an ID the database actually has; never
+    // overwrite an existing identifier. Skipped for the no-ID fallback
+    // pass, since those records have nothing to fill in anyway.
+    if (fillDbNumbers){
+      if (isEmptyVal(getCellValue(updateWs, r, colF)) && !isEmptyVal(rec.primaryId)){
+        setTextOrNumberValue(updateWs, r, colF, String(rec.primaryId).trim());
+        summary.dbNumberFilled++;
+      }
+      if (isEmptyVal(getCellValue(updateWs, r, colG)) && !isEmptyVal(rec.secondaryId)){
+        setTextOrNumberValue(updateWs, r, colG, String(rec.secondaryId).trim());
+        summary.dbNumberFilled++;
+      }
+    }
+
+    // --- Shop Test Date (col H) ---
+    // Always kept in sync with the database, formatted to match the
+    // existing convention in this workbook — "YYYY-MM-DD (word)" — where
+    // "word" is whatever annotation the database currently carries for
+    // that record ("estimated", "planned", "shoptested", etc.), not a
+    // hardcoded label. A row is only left untouched if its date AND
+    // annotation already match the database exactly.
+    const curShopRaw = getCellValue(updateWs, r, colH);
+    if (!isEmptyVal(rec.shopTestDate)){
+      const chosen = parseFlexibleDate(rec.shopTestDate);
+      if (chosen){
+        const annotation = extractAnnotation(rec.shopTestDate);
+        const curParsed = parseFlexibleDate(curShopRaw);
+        const curAnnotation = extractAnnotation(curShopRaw).toLowerCase();
+        const sameDate = curParsed && curParsed.getTime() === chosen.getTime();
+        const sameAnnotation = curAnnotation === annotation.toLowerCase();
+        if (!(sameDate && sameAnnotation)){
+          const newVal = formatISO(chosen) + (annotation ? ' (' + annotation + ')' : '');
+          setCellValue(updateWs, r, colH, newVal, 's');
+          summary.shopTestUpdated++;
+        } else {
+          summary.skippedShoptested++;
+        }
+      }
+    }
+
+    // --- Licensee (col I) ---
+    if (!isEmptyVal(rec.licensee)){
+      const newVal = String(rec.licensee).trim();
+      const curVal = cellDisplayString(getCellValue(updateWs, r, colI));
+      if (newVal !== curVal){
+        setCellValue(updateWs, r, colI, newVal, 's');
+        summary.licenseeUpdated++;
+      }
+    }
+
+    // --- Vessel Type (col J) ---
+    if (!isEmptyVal(rec.vesselType)){
+      const newVal = String(rec.vesselType).trim();
+      const curVal = cellDisplayString(getCellValue(updateWs, r, colJ));
+      if (newVal !== curVal){
+        setCellValue(updateWs, r, colJ, newVal, 's');
+        summary.vesselTypeUpdated++;
+      }
+    }
+  }
+
+  // Standardizes Handover Date (col E) to a single plain-text format
+  // ("YYYY-MM-DD") for every row, whether or not that row was matched
+  // to a database record. This is applied to EVERY row on purpose:
+  // leaving existing native Excel date cells as-is is not actually
+  // safe, because the workbook is fully re-serialized by XLSX.write()
+  // at the end regardless of which cells this program touched, and
+  // that re-serialization step can silently shift date-typed cells by
+  // one day in timezones behind UTC. Rewriting every Handover Date as
+  // plain text sidesteps that entirely and gives one consistent format
+  // across the whole column.
+  //
+  // If the database supplies a usable date (>= 1 Jan 2025), that value
+  // is used (counted in summary.handoverUpdated). Otherwise, whatever
+  // is already in the cell is re-parsed and rewritten in the same
+  // standardized format, without changing the date itself (counted in
+  // summary.handoverStandardized only if the text actually changes).
+  function standardizeHandoverDate(ws, r, colE, rec, summary){
+    let resolved = null;
+    let fromDb = false;
+
+    if (rec && !isEmptyVal(rec.handoverDate)){
+      const parsed = parseFlexibleDate(rec.handoverDate);
+      if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
+        resolved = parsed;
+        fromDb = true;
+      }
+    }
+
+    const curRaw = getCellValue(ws, r, colE);
+    if (!resolved){
+      resolved = parseFlexibleDate(curRaw); // keep the existing date, just re-parse it
+    }
+    if (!resolved) return; // blank or unparseable — leave the cell alone
+
+    const newStr = formatISO(resolved);
+    const curStr = cellDisplayString(curRaw);
+    if (newStr !== curStr){
+      setCellValue(ws, r, colE, newStr, 's');
+      if (fromDb) summary.handoverUpdated++;
+      else summary.handoverStandardized++;
+    }
+  }
+
   async function processWorkbooks(){
     const updateWs = state.update.workbook.Sheets[state.update.sheetName];
     const dbWs = state.db.workbook.Sheets[state.db.sheetName];
@@ -976,8 +1158,9 @@ header.app-header p{
     const summary = {
       total: 0, matched: 0, unmatched: 0,
       vesselUpdated: 0, imoUpdated: 0, handoverUpdated: 0, shopTestUpdated: 0,
-      hullUpdated: 0, ownerUpdated: 0, licenseeUpdated: 0, vesselTypeUpdated: 0,
-      dbNumberFilled: 0,
+      handoverStandardized: 0,
+      ownerUpdated: 0, licenseeUpdated: 0, vesselTypeUpdated: 0,
+      dbNumberFilled: 0, noIdMatched: 0,
       skippedShoptested: 0, newVesselsAdded: 0
     };
 
@@ -988,10 +1171,7 @@ header.app-header p{
     for (let r = firstDataRow; r <= lastRow; r++){
       summary.total++;
 
-      const colA = range.s.c + COL.A, colB = range.s.c + COL.B, colC = range.s.c + COL.C,
-            colD = range.s.c + COL.D, colE = range.s.c + COL.E,
-            colF = range.s.c + COL.F, colG = range.s.c + COL.G, colH = range.s.c + COL.H,
-            colI = range.s.c + COL.I, colJ = range.s.c + COL.J;
+      const colE = range.s.c + COL.E, colF = range.s.c + COL.F, colG = range.s.c + COL.G;
 
       const primaryId = normalizeId(getCellValue(updateWs, r, colF));
       const secondaryId = normalizeId(getCellValue(updateWs, r, colG));
@@ -1002,122 +1182,13 @@ header.app-header p{
 
       if (recIdx === null){
         summary.unmatched++;
+        standardizeHandoverDate(updateWs, r, colE, null, summary);
       } else {
         summary.matched++;
         matchedDbIndices.add(recIdx);
         const rec = dbIndex.records[recIdx];
-
-        // --- Vessel Name (col A) ---
-        if (!isEmptyVal(rec.vesselName)){
-          const newVal = String(rec.vesselName).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colA));
-          if (newVal !== curVal){
-            setCellValue(updateWs, r, colA, newVal, 's');
-            summary.vesselUpdated++;
-          }
-        }
-
-        // --- Hull Number (col B) ---
-        if (!isEmptyVal(rec.hullNumber)){
-          const raw = String(rec.hullNumber).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colB));
-          if (raw !== curVal){
-            setTextOrNumberValue(updateWs, r, colB, raw);
-            summary.hullUpdated++;
-          }
-        }
-
-        // --- IMO Number (col C) ---
-        if (!isEmptyVal(rec.imoNumber)){
-          const raw = String(rec.imoNumber).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colC));
-          if (raw !== curVal){
-            setTextOrNumberValue(updateWs, r, colC, raw);
-            summary.imoUpdated++;
-          }
-        }
-
-        // --- Owner (col D) ---
-        if (!isEmptyVal(rec.owner)){
-          const newVal = String(rec.owner).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colD));
-          if (newVal !== curVal){
-            setCellValue(updateWs, r, colD, newVal, 's');
-            summary.ownerUpdated++;
-          }
-        }
-
-        // --- Handover Date (col E) — only if DB date >= 1 Jan 2025.
-        // Written as a real date value so the cell keeps its existing
-        // date formatting instead of turning into plain text.
-        if (!isEmptyVal(rec.handoverDate)){
-          const parsed = parseFlexibleDate(rec.handoverDate);
-          if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
-            const curRaw = getCellValue(updateWs, r, colE);
-            const curParsed = parseFlexibleDate(curRaw);
-            const changed = !curParsed || curParsed.getTime() !== parsed.getTime();
-            if (changed){
-              setCellDateValue(updateWs, r, colE, parsed);
-              summary.handoverUpdated++;
-            }
-          }
-        }
-
-        // --- Primary / Secondary DB Number (cols F/G) — only fill in
-        // when the workbook is missing an ID the database actually has;
-        // never overwrite an existing identifier.
-        if (isEmptyVal(getCellValue(updateWs, r, colF)) && !isEmptyVal(rec.primaryId)){
-          setTextOrNumberValue(updateWs, r, colF, String(rec.primaryId).trim());
-          summary.dbNumberFilled++;
-        }
-        if (isEmptyVal(getCellValue(updateWs, r, colG)) && !isEmptyVal(rec.secondaryId)){
-          setTextOrNumberValue(updateWs, r, colG, String(rec.secondaryId).trim());
-          summary.dbNumberFilled++;
-        }
-
-        // --- Shop Test Date (col H) ---
-        // Always kept in sync with the database, formatted to match the
-        // existing convention in this workbook: "YYYY-MM-DD (shoptested)".
-        // A row is only left untouched if it's already marked shoptested
-        // AND already carries the same date the database has now.
-        const curShopRaw = getCellValue(updateWs, r, colH);
-        const curShopStr = cellDisplayString(curShopRaw);
-        const alreadyShoptested = curShopStr.toLowerCase().includes('shoptested');
-        if (!isEmptyVal(rec.shopTestDate)){
-          const chosen = parseFlexibleDate(rec.shopTestDate);
-          if (chosen){
-            const curParsed = parseFlexibleDate(curShopRaw); // strips any "(...)" annotation
-            const sameDate = curParsed && curParsed.getTime() === chosen.getTime();
-            if (!(alreadyShoptested && sameDate)){
-              setCellValue(updateWs, r, colH, formatISO(chosen) + ' (shoptested)', 's');
-              summary.shopTestUpdated++;
-            } else {
-              summary.skippedShoptested++;
-            }
-          }
-        } else if (alreadyShoptested){
-          summary.skippedShoptested++;
-        }
-
-        // --- Licensee (col I) ---
-        if (!isEmptyVal(rec.licensee)){
-          const newVal = String(rec.licensee).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colI));
-          if (newVal !== curVal){
-            setCellValue(updateWs, r, colI, newVal, 's');
-            summary.licenseeUpdated++;
-          }
-        }
-
-        // --- Vessel Type (col J) ---
-        if (!isEmptyVal(rec.vesselType)){
-          const newVal = String(rec.vesselType).trim();
-          const curVal = cellDisplayString(getCellValue(updateWs, r, colJ));
-          if (newVal !== curVal){
-            setCellValue(updateWs, r, colJ, newVal, 's');
-            summary.vesselTypeUpdated++;
-          }
-        }
+        applyRecordToRow(updateWs, range.s.c, r, rec, summary, true);
+        standardizeHandoverDate(updateWs, r, colE, rec, summary);
       }
 
       processedRows++;
@@ -1135,11 +1206,37 @@ header.app-header p{
     let nextRow = lastRow + 1;
     const styleSourceRow = lastRow >= firstDataRow ? lastRow : -1;
 
+    // Fallback lookups (IMO Number, then vessel name) for the rare DB
+    // records that carry neither a primary nor secondary DB Number, so
+    // they can be recognized as "already in the workbook" on repeat runs
+    // instead of being appended again and again.
+    const fallback = buildFallbackIndices(updateWs, range, firstDataRow, lastRow);
+
     for (let i = 0; i < dbIndex.records.length; i++){
       if (matchedDbIndices.has(i)) continue;
       const rec = dbIndex.records[i];
       const hasId = !isEmptyVal(rec.primaryId) || !isEmptyVal(rec.secondaryId);
-      if (!hasId) continue; // no reliable DB Number — nothing to track it by, skip
+
+      if (!hasId){
+        // No DB Number at all — try to recognize this vessel already
+        // being present via IMO Number, then vessel name, and update it
+        // in place instead of risking a duplicate row.
+        const imoKey = normalizeId(rec.imoNumber);
+        const nameKey = normalizeName(rec.vesselName);
+        let existingRow = imoKey ? fallback.imoMap.get(imoKey) : undefined;
+        if (existingRow === undefined && nameKey) existingRow = fallback.nameMap.get(nameKey);
+
+        if (existingRow !== undefined){
+          applyRecordToRow(updateWs, range.s.c, existingRow, rec, summary, false);
+          standardizeHandoverDate(updateWs, existingRow, range.s.c + COL.E, rec, summary);
+          summary.noIdMatched++;
+          continue;
+        }
+        // Not found anywhere yet — falls through to be added below, and
+        // gets registered so a second no-ID DB record for the same
+        // vessel (within this same run) updates this new row instead of
+        // creating a second duplicate.
+      }
 
       const cols = [COL.A,COL.B,COL.C,COL.D,COL.E,COL.F,COL.G,COL.H,COL.I,COL.J];
       if (styleSourceRow >= 0){
@@ -1154,7 +1251,7 @@ header.app-header p{
       if (!isEmptyVal(rec.handoverDate)){
         const parsed = parseFlexibleDate(rec.handoverDate);
         if (parsed && parsed.getTime() >= HANDOVER_THRESHOLD.getTime()){
-          setCellDateValue(updateWs, nextRow, range.s.c + COL.E, parsed);
+          setCellValue(updateWs, nextRow, range.s.c + COL.E, formatISO(parsed), 's');
         }
       }
 
@@ -1163,11 +1260,22 @@ header.app-header p{
 
       if (!isEmptyVal(rec.shopTestDate)){
         const chosen = parseFlexibleDate(rec.shopTestDate);
-        if (chosen) setCellValue(updateWs, nextRow, range.s.c + COL.H, formatISO(chosen) + ' (shoptested)', 's');
+        if (chosen){
+          const annotation = extractAnnotation(rec.shopTestDate);
+          setCellValue(updateWs, nextRow, range.s.c + COL.H, formatISO(chosen) + (annotation ? ' (' + annotation + ')' : ''), 's');
+        }
       }
 
       writeNewRowField(updateWs, nextRow, range.s.c + COL.I, rec.licensee);
       writeNewRowField(updateWs, nextRow, range.s.c + COL.J, rec.vesselType);
+
+      // Register this freshly-added row in the fallback indices so any
+      // later no-ID DB record referring to the same vessel (same IMO or
+      // name) updates it instead of adding a second copy.
+      const newImoKey = normalizeId(rec.imoNumber);
+      if (newImoKey && !fallback.imoMap.has(newImoKey)) fallback.imoMap.set(newImoKey, nextRow);
+      const newNameKey = normalizeName(rec.vesselName);
+      if (newNameKey && !fallback.nameMap.has(newNameKey)) fallback.nameMap.set(newNameKey, nextRow);
 
       summary.newVesselsAdded++;
       nextRow++;
@@ -1176,7 +1284,12 @@ header.app-header p{
     setProgress('Building the updated workbook…', 92);
     await yieldToUI();
 
-    const out = XLSX.write(state.update.workbook, { bookType: 'xlsx', type: 'array', cellStyles: true, cellDates: true });
+    // cellDates is left off here too: this program no longer produces any
+    // JS Date objects (Handover Date and Shop Test Date are written as
+    // plain text), so there is nothing for this option to affect — but
+    // leaving it off avoids ever reintroducing a live Date value by
+    // accident in the future.
+    const out = XLSX.write(state.update.workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
     setProgress('Done', 100);
@@ -1231,7 +1344,6 @@ header.app-header p{
     el('statImo').textContent = summary.imoUpdated;
     el('statHandover').textContent = summary.handoverUpdated;
     el('statShoptest').textContent = summary.shopTestUpdated;
-    el('statHull').textContent = summary.hullUpdated;
     el('statOwner').textContent = summary.ownerUpdated;
     el('statLicensee').textContent = summary.licenseeUpdated;
     el('statVesselType').textContent = summary.vesselTypeUpdated;
@@ -1252,6 +1364,12 @@ header.app-header p{
     }
     if (summary.dbNumberFilled > 0){
       notes.push(summary.dbNumberFilled + ' missing DB Number cell' + (summary.dbNumberFilled===1?'':'s') + ' (primary or secondary) were filled in from the database.');
+    }
+    if (summary.noIdMatched > 0){
+      notes.push(summary.noIdMatched + ' database record' + (summary.noIdMatched===1?'':'s') + ' with no DB Number were matched to an existing row by IMO Number or vessel name instead, and updated in place rather than added again.');
+    }
+    if (summary.handoverStandardized > 0){
+      notes.push(summary.handoverStandardized + ' Handover Date cell' + (summary.handoverStandardized===1?'':'s') + ' had no new value from the database, but were reformatted to the standard YYYY-MM-DD text format for consistency.');
     }
     const notesList = el('notesList');
     notesList.innerHTML = notes.map(n => '<li>' + n + '</li>').join('');
